@@ -1,0 +1,17 @@
+lenv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.env
+
+.git/
+.gitignore
+
+celerybeat-schedule
+celerybeat-schedule-shm
+celerybeat-schedule-wal
+
+media/
+scratch/

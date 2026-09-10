@@ -1,0 +1,11 @@
+Shipment creation steps:
+1. Go to Orders.
+2. Select an order.
+3. Click Create Shipment.
+4. Assign a courier.
+5. Save the shipment.
+
+Courier assignment:
+- Verify serviceability.
+- Choose courier partner.
+- Confirm assignment.
