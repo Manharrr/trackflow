@@ -48,6 +48,7 @@ DATABASE_ROUTERS = (
 
 TENANT_MODEL = 'tenants.Client'
 TENANT_DOMAIN_MODEL = 'tenants.Domain'
+SHOW_PUBLIC_IF_NO_TENANT_FOUND = True
 
 SHARED_APPS = [
     'daphne',
