@@ -265,12 +265,41 @@ class GoogleLoginAPIView(APIView):
                 user.google_id = google_id
                 user.save(update_fields=["is_google_account", "google_id"])
 
-            # Superuser login block for Google SSO
+            # Superuser login for Google SSO
             if user.is_superuser:
-                return Response(
-                    {"error": "Super Admin cannot login via Google SSO. Please use standard login."},
-                    status=status.HTTP_400_BAD_REQUEST,
+                if user.is_mfa_enabled:
+                    return Response(
+                        {
+                            "mfa_required": True,
+                            "email": user.email,
+                        },
+                        status=status.HTTP_200_OK,
+                    )
+
+                tokens = generate_tokens(user)
+                response = Response(
+                    {
+                        "access": tokens["access"],
+                        "refresh": tokens["refresh"],
+                        "user": {
+                            "id": user.id,
+                            "email": user.email,
+                            "phone": user.phone,
+                            "role": "super_admin",
+                        },
+                    },
+                    status=status.HTTP_200_OK,
                 )
+                response.set_cookie(
+                    key="refresh_token",
+                    value=tokens["refresh"],
+                    httponly=True,
+                    secure=settings.COOKIE_SECURE,
+                    samesite="Lax",
+                    domain=settings.SESSION_COOKIE_DOMAIN,
+                    path="/",
+                )
+                return response
 
             # Lookup workspaces user belongs to
             user_tenants = UserTenant.objects.filter(user=user, is_active=True).select_related("tenant")
