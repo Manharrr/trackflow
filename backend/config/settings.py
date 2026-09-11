@@ -190,6 +190,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "https://trackflow-indol.vercel.app",
 ]
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
@@ -217,6 +218,7 @@ REST_FRAMEWORK = {
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://*.localhost:5173",
+    "https://trackflow-indol.vercel.app",
 ]
 
 
