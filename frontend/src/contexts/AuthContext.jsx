@@ -155,8 +155,7 @@ export function AuthProvider({ children }) {
             originalRequest.headers['Authorization'] = `Bearer ${newAccess}`
             return axiosInstance(originalRequest)
           } catch (err) {
-            const port = window.location.port ? `:${window.location.port}` : ''
-            window.location.href = `http://localhost${port}/?logged_out=true`
+            window.location.href = `${window.location.origin}/?logged_out=true`
             return Promise.reject(err)
           }
         }
@@ -362,8 +361,7 @@ export function AuthProvider({ children }) {
       setAccessToken(null)
       setSubscription(null)
       dispatch({ type: 'LOGOUT' })
-      const port = window.location.port ? `:${window.location.port}` : ''
-      window.location.href = `http://localhost${port}/?logged_out=true`
+      window.location.href = `${window.location.origin}/?logged_out=true`
     }
   }
 
