@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
 import axiosInstance from '../api/axios'
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth, getTenantWorkspaceOrigin } from '../contexts/AuthContext'
 import toast from 'react-hot-toast'
 import { ShieldCheck, Fingerprint, ArrowLeft } from 'lucide-react'
 
@@ -31,8 +31,9 @@ export default function MFAPage() {
             const token = res.data.access
             const workspaceUrl = res.data.tenant?.workspace_url
             const refreshToken = res.data.refresh
+            const tenant = res.data.tenant
 
-            const me = await completeMfaLogin(token, workspaceUrl, refreshToken)
+            const me = await completeMfaLogin(token, workspaceUrl, refreshToken, tenant)
 
             if (me?.redirectUrl) {
                 window.location.href = me.redirectUrl
@@ -48,8 +49,9 @@ export default function MFAPage() {
                 return
             }
 
-            if (workspaceUrl) {
-                window.location.href = `${workspaceUrl}/dashboard`
+            const targetOrigin = getTenantWorkspaceOrigin(tenant || workspaceUrl)
+            if (targetOrigin) {
+                window.location.href = `${targetOrigin}/dashboard`
                 return
             }
 

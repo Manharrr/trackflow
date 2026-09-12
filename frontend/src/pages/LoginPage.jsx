@@ -395,7 +395,7 @@ export default function LoginPage() {
                                             </h3>
 
                                             <p className="text-xs text-muted-gray mt-0.5">
-                                                {workspace.workspace_code}.localhost
+                                                {workspace.workspace_code}.{window.location.hostname.includes('manhargurukkal.site') ? 'manhargurukkal.site' : 'localhost'}
                                             </p>
 
                                         </div>

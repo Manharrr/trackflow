@@ -23,6 +23,58 @@ function authReducer(state, action) {
   }
 }
 
+export const getTenantWorkspaceOrigin = (tenantOrUrl) => {
+  if (!tenantOrUrl) return null
+
+  const currentHostname = window.location.hostname
+  const isLocal =
+    currentHostname === 'localhost' ||
+    currentHostname.endsWith('.localhost') ||
+    currentHostname === '127.0.0.1'
+
+  const schemaName = typeof tenantOrUrl === 'object' ? tenantOrUrl.schema_name : null
+  const rawUrl = typeof tenantOrUrl === 'string' ? tenantOrUrl : tenantOrUrl.workspace_url
+
+  if (isLocal) {
+    const port = window.location.port ? `:${window.location.port}` : ':5173'
+    const protocol = window.location.protocol || 'http:'
+    if (rawUrl) {
+      try {
+        const parsed = new URL(rawUrl)
+        return `${protocol}//${parsed.hostname}${port}`
+      } catch {
+        // fallback
+      }
+    }
+    const host = schemaName ? `${schemaName}.localhost` : currentHostname
+    return `${protocol}//${host}${port}`
+  }
+
+  // Production: Always HTTPS, NEVER append :5173 or dev ports
+  if (rawUrl) {
+    try {
+      const parsed = new URL(rawUrl)
+      let hostname = parsed.hostname
+      // If backend mistakenly sent a .localhost domain or local IP in production, map to production domain
+      if ((hostname.endsWith('.localhost') || hostname === '127.0.0.1' || hostname === 'localhost') && schemaName) {
+        hostname = `${schemaName}.manhargurukkal.site`
+      }
+      return `https://${hostname}`
+    } catch {
+      // fallback
+    }
+  }
+
+  if (schemaName) {
+    const baseDomain = currentHostname.includes('manhargurukkal.site')
+      ? 'manhargurukkal.site'
+      : currentHostname.replace(/^[a-z0-9-]+\./, '')
+    return `https://${schemaName}.${baseDomain}`
+  }
+
+  return window.location.origin
+}
+
 export function AuthProvider({ children }) {
   const [state, dispatch] = useReducer(authReducer, initialState)
   const [subscription, setSubscription] = useState(null)
@@ -183,19 +235,16 @@ export function AuthProvider({ children }) {
       setAccessToken(res.data.access)
     }
 
-    const workspaceUrl = res.data.tenant?.workspace_url
     const currentOrigin = window.location.origin
+    const targetOrigin = getTenantWorkspaceOrigin(res.data.tenant)
 
-    if (workspaceUrl) {
-      const targetOrigin = new URL(workspaceUrl).origin
-      if (currentOrigin !== targetOrigin) {
-        isInitializingRef.current = true
-        const url = new URL(`${workspaceUrl}/dashboard`)
-        if (res.data.refresh) {
-          url.searchParams.set('auth_transfer', res.data.refresh)
-        }
-        return { redirectUrl: url.toString() }
+    if (targetOrigin && currentOrigin !== targetOrigin) {
+      isInitializingRef.current = true
+      const url = new URL(`${targetOrigin}/dashboard`)
+      if (res.data.refresh) {
+        url.searchParams.set('auth_transfer', res.data.refresh)
       }
+      return { redirectUrl: url.toString() }
     }
 
     const meRes = await axiosInstance.get('/auth/me/')
@@ -228,7 +277,8 @@ export function AuthProvider({ children }) {
       targetPath = '/employee'
     }
 
-    return { redirectUrl: `${currentOrigin}${targetPath}`, subscription: subData, role }
+    const destOrigin = targetOrigin || currentOrigin
+    return { redirectUrl: `${destOrigin}${targetPath}`, subscription: subData, role }
   }
 
   const googleLogin = async (token, workspace_code = null) => {
@@ -247,19 +297,16 @@ export function AuthProvider({ children }) {
       setAccessToken(res.data.access)
     }
 
-    const workspaceUrl = res.data.tenant?.workspace_url
     const currentOrigin = window.location.origin
+    const targetOrigin = getTenantWorkspaceOrigin(res.data.tenant)
 
-    if (workspaceUrl) {
-      const targetOrigin = new URL(workspaceUrl).origin
-      if (currentOrigin !== targetOrigin) {
-        isInitializingRef.current = true
-        const url = new URL(`${workspaceUrl}/dashboard`)
-        if (res.data.refresh) {
-          url.searchParams.set('auth_transfer', res.data.refresh)
-        }
-        return { redirectUrl: url.toString() }
+    if (targetOrigin && currentOrigin !== targetOrigin) {
+      isInitializingRef.current = true
+      const url = new URL(`${targetOrigin}/dashboard`)
+      if (res.data.refresh) {
+        url.searchParams.set('auth_transfer', res.data.refresh)
       }
+      return { redirectUrl: url.toString() }
     }
 
     const meRes = await axiosInstance.get('/auth/me/')
@@ -292,7 +339,8 @@ export function AuthProvider({ children }) {
       targetPath = '/employee'
     }
 
-    return { redirectUrl: `${currentOrigin}${targetPath}`, subscription: subData, role }
+    const destOrigin = targetOrigin || currentOrigin
+    return { redirectUrl: `${destOrigin}${targetPath}`, subscription: subData, role }
   }
 
   const register = async (email, username, password, confirm_password) => {
@@ -304,20 +352,18 @@ export function AuthProvider({ children }) {
     return res.data
   }
 
-  const completeMfaLogin = async (token, workspaceUrl = null, refreshToken = null) => {
+  const completeMfaLogin = async (token, workspaceUrl = null, refreshToken = null, tenant = null) => {
     setAccessToken(token)
     const currentOrigin = window.location.origin
+    const targetOrigin = getTenantWorkspaceOrigin(tenant || workspaceUrl)
 
-    if (workspaceUrl) {
-      const targetOrigin = new URL(workspaceUrl).origin
-      if (currentOrigin !== targetOrigin) {
-        isInitializingRef.current = true
-        const url = new URL(`${workspaceUrl}/dashboard`)
-        if (refreshToken) {
-          url.searchParams.set('auth_transfer', refreshToken)
-        }
-        return { redirectUrl: url.toString() }
+    if (targetOrigin && currentOrigin !== targetOrigin) {
+      isInitializingRef.current = true
+      const url = new URL(`${targetOrigin}/dashboard`)
+      if (refreshToken) {
+        url.searchParams.set('auth_transfer', refreshToken)
       }
+      return { redirectUrl: url.toString() }
     }
 
     const meRes = await axiosInstance.get('/auth/me/')
@@ -350,7 +396,8 @@ export function AuthProvider({ children }) {
       targetPath = '/employee'
     }
 
-    return { redirectUrl: `${currentOrigin}${targetPath}`, user: meRes.data, subscription: subData }
+    const destOrigin = targetOrigin || currentOrigin
+    return { redirectUrl: `${destOrigin}${targetPath}`, user: meRes.data, subscription: subData }
   }
 
   const logout = async () => {
