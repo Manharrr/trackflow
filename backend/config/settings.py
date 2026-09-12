@@ -35,7 +35,7 @@ DEBUG = os.getenv("DEBUG", "False") == "True"
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
-    ".trackflow.ai",
+    ".manhargurukkal.site",
 ]
 
 
@@ -48,6 +48,7 @@ DATABASE_ROUTERS = (
 
 TENANT_MODEL = 'tenants.Client'
 TENANT_DOMAIN_MODEL = 'tenants.Domain'
+
 SHOW_PUBLIC_IF_NO_TENANT_FOUND = True
 PUBLIC_SCHEMA_URLCONF = "config.urls"
 
@@ -97,7 +98,8 @@ INSTALLED_APPS = list(SHARED_APPS) + [
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
-    'django_tenants.middleware.main.TenantMainMiddleware',
+    # 'django_tenants.middleware.main.TenantMainMiddleware',
+    'apps.tenants.middleware.TrackFlowTenantMiddleware',
 
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -193,6 +195,7 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "https://trackflow-indol.vercel.app",
+    "https://manhargurukkal.site",
 ]
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
@@ -221,6 +224,7 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://*.localhost:5173",
     "https://trackflow-indol.vercel.app",
+    "https://manhargurukkal.site",
 ]
 
 
@@ -242,14 +246,13 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
 GOOGLE_CLIENT_ID = os.getenv(
     "GOOGLE_CLIENT_ID"
 )
+SESSION_COOKIE_DOMAIN = os.getenv("SESSION_COOKIE_DOMAIN")
+CSRF_COOKIE_DOMAIN = os.getenv("CSRF_COOKIE_DOMAIN")
 
-SESSION_COOKIE_SECURE = False
-
-SESSION_COOKIE_DOMAIN = None
-CSRF_COOKIE_DOMAIN = None
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
 
 BASE_DOMAIN = os.getenv("BASE_DOMAIN", "localhost")
-
 
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "").strip()
