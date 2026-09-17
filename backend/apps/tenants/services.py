@@ -16,7 +16,7 @@ Your TrackFlow AI workspace has been approved.
 
 Workspace
 
-http://{company.schema_name}.{settings.BASE_DOMAIN}:5173
+https://{company.schema_name}.{settings.BASE_DOMAIN}
 You can now login.
 
 Regards
