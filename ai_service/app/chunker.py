@@ -1,15 +1,15 @@
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.config import CHUNK_SIZE, CHUNK_OVERLAP
 
-CODE_SEPARATORS = ["\nclass ", "\ndef ", "\n\n", "\n", " ", ""]
+DOCUMENT_SEPARATORS = ["\n# ", "\n## ", "\n### ", "\n#### ", "\n\n", "\n", " ", ""]
 
 
 def chunk_documents(documents: list[dict]) -> list[dict]:
-    """Split documents into chunks while preserving metadata."""
+    """Split documentation into chunks while preserving metadata."""
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
-        separators=CODE_SEPARATORS,
+        separators=DOCUMENT_SEPARATORS,
     )
 
     chunks = []
@@ -18,5 +18,5 @@ def chunk_documents(documents: list[dict]) -> list[dict]:
         for piece in pieces:
             chunks.append({"content": piece, "metadata": doc["metadata"]})
 
-    print(f"Created {len(chunks)} chunks")
+    print(f"[RAG Ingestion] Created {len(chunks)} text chunks from {len(documents)} documents.")
     return chunks

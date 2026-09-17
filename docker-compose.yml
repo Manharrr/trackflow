@@ -103,7 +103,8 @@ services:
       POSTGRES_DB: Logestic_Go
       POSTGRES_USER: postgres
       PGVECTOR_COLLECTION: trackflow_documents
-      PROJECT_SOURCE_DIRS: /project-source/backend,/project-source/frontend
+      PROJECT_DOCS_DIRS: /app/documents,/project-source/backend/docs
+      PROJECT_SOURCE_DIRS: /app/documents,/project-source/backend/docs
 
     ports:
       - "8001:8000"
@@ -115,6 +116,7 @@ services:
     volumes:
       - ./backend:/project-source/backend:ro
       - ./frontend:/project-source/frontend:ro
+      - ./ai_service/documents:/app/documents:ro
 
   nginx:
     image: nginx:alpine

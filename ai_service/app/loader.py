@@ -1,26 +1,23 @@
 import os
 from pypdf import PdfReader
 
-SUPPORTED_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx", ".md", ".txt", ".json", ".pdf"}
+# ONLY Markdown (.md) and PDF (.pdf) documentation files are allowed
+SUPPORTED_EXTENSIONS = {".md", ".pdf"}
+
+# Source code, config, binary, and environment extensions that MUST be strictly ignored
+IGNORED_CODE_EXTENSIONS = {
+    ".py", ".pyc", ".js", ".jsx", ".ts", ".tsx", ".json", ".yml", ".yaml",
+    ".env", ".log", ".sql", ".sh", ".dockerfile", ".tf", ".tfstate",
+    ".html", ".css", ".scss", ".map", ".txt", ".xml", ".csv", ".toml"
+}
 
 EXCLUDED_DIR_NAMES = {
     "venv", "kenv", "lenv", "node_modules", ".git", "__pycache__",
     ".pytest_cache", ".mypy_cache", "dist", "build", "media", "static",
+    "migrations", "terraform"
 }
 
-EXCLUDED_FILE_SUFFIXES = (".pyc", ".log")
-
-# Extensions that are safe to surface to PUBLIC/business chatbot users.
-# Everything else (code, config, json, pdf-by-default) is INTERNAL only.
-PUBLIC_EXTENSIONS = {".md", ".txt"}
-
-# Any folder name in this set forces INTERNAL regardless of extension
-# (e.g. don't let a README inside a migrations folder leak schema notes).
-FORCE_INTERNAL_DIR_NAMES = {"migrations", "config", "secrets", "internal"}
-
-# Any folder name in this set forces PUBLIC regardless of extension
-# (e.g. a docs/public folder full of onboarding guides, even if it had .json samples).
-FORCE_PUBLIC_DIR_NAMES = {"docs", "public_docs", "help"}
+EXCLUDED_FILE_SUFFIXES = (".pyc", ".log", ".env")
 
 
 def _is_excluded_dir(dirname: str) -> bool:
@@ -28,23 +25,8 @@ def _is_excluded_dir(dirname: str) -> bool:
 
 
 def _determine_visibility(rel_path: str, ext: str) -> str:
-    """
-    Decide whether a chunk from this file is safe to retrieve for the
-    PUBLIC/business chatbot, or should only ever be retrieved for the
-    INTERNAL/project-knowledge chatbot.
-
-    This runs at indexing time, not at answer time, so filtering happens
-    before the content ever reaches the LLM prompt.
-    """
-    parts = {p.lower() for p in rel_path.replace("\\", "/").split("/")}
-
-    if parts & FORCE_INTERNAL_DIR_NAMES:
-        return "internal"
-
-    if parts & FORCE_PUBLIC_DIR_NAMES:
-        return "public"
-
-    return "public" if ext in PUBLIC_EXTENSIONS else "internal"
+    """Project documentation is public by default for chatbot context."""
+    return "public"
 
 
 def _read_text_file(path: str) -> str | None:
@@ -60,7 +42,7 @@ def _read_text_file(path: str) -> str | None:
     except Exception:
         return None
 
-    if not content:
+    if not content or not content.strip():
         return None
 
     # Reject garbled content (null-byte interleaved text)
@@ -76,82 +58,109 @@ def _read_pdf_file(path: str) -> str | None:
         reader = PdfReader(path)
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
 
-        if not text.strip():
+        if not text or not text.strip():
             return None
 
-        # Reject garbled extraction (e.g. null-byte interleaved text)
         null_ratio = text.count("\x00") / max(len(text), 1)
         if null_ratio > 0.05:
-            print(f"  Skipping garbled PDF: {path}")
+            print(f"  [Warning] Skipping garbled PDF: {path}")
             return None
 
         return text
-    except Exception:
+    except Exception as e:
+        print(f"  [Warning] Error reading PDF {path}: {e}")
         return None
 
 
 def _guess_file_type(ext: str) -> str:
     return {
-        ".py": "python", ".js": "javascript", ".jsx": "javascript",
-        ".ts": "typescript", ".tsx": "typescript", ".md": "markdown",
-        ".txt": "text", ".json": "json", ".pdf": "pdf",
+        ".md": "markdown",
+        ".pdf": "pdf",
     }.get(ext, "unknown")
 
 
 def load_documents(source_dirs: list[str]) -> list[dict]:
-    """Recursively scan source_dirs and return a list of documents with metadata."""
+    """
+    Recursively scan source_dirs for ONLY project documentation files (.md, .pdf).
+    Source-code files (.py, .js, etc.) and non-documentation files are strictly ignored.
+    """
     documents = []
-    found_count = 0
+    pdf_count = 0
+    md_count = 0
+    ignored_count = 0
+    ignored_extensions = set()
     skipped_count = 0
-    public_count = 0
+
+    print("==================================================")
+    print("[RAG Ingestion] Document Discovery Started")
+    print("==================================================")
 
     for base_dir in source_dirs:
         if not os.path.isdir(base_dir):
-            print(f"  Skipping missing directory: {base_dir}")
+            print(f"  [Warning] Skipping non-existent directory: {base_dir}")
             continue
 
+        print(f"[RAG Ingestion] Scanning directory: {base_dir}")
+
         for root, dirs, files in os.walk(base_dir):
+            # Filter out virtual environments, node_modules, git, and hidden directories
             dirs[:] = [d for d in dirs if not _is_excluded_dir(d)]
 
             for filename in files:
-                if filename == ".env" or filename.endswith(EXCLUDED_FILE_SUFFIXES):
+                if filename == ".env" or filename.startswith("."):
+                    ignored_count += 1
                     continue
 
                 ext = os.path.splitext(filename)[1].lower()
+
+                # Strictly allow only Markdown and PDF documentation files
                 if ext not in SUPPORTED_EXTENSIONS:
+                    ignored_count += 1
+                    if ext:
+                        ignored_extensions.add(ext)
                     continue
 
-                found_count += 1
                 full_path = os.path.join(root, filename)
 
-                content = (
-                    _read_pdf_file(full_path) if ext == ".pdf" else _read_text_file(full_path)
-                )
+                if ext == ".pdf":
+                    content = _read_pdf_file(full_path)
+                elif ext == ".md":
+                    content = _read_text_file(full_path)
+                else:
+                    content = None
 
                 if not content or not content.strip():
                     skipped_count += 1
                     continue
 
+                if ext == ".pdf":
+                    pdf_count += 1
+                elif ext == ".md":
+                    md_count += 1
+
                 rel_path = os.path.relpath(full_path, base_dir)
                 rel_path_norm = rel_path.replace("\\", "/")
-                module = rel_path_norm.split("/")[0] if "/" in rel_path_norm else "root"
-                visibility = _determine_visibility(rel_path_norm, ext)
-
-                if visibility == "public":
-                    public_count += 1
+                module = rel_path_norm.split("/")[0] if "/" in rel_path_norm else "docs"
 
                 documents.append({
                     "content": content,
                     "metadata": {
                         "source": rel_path_norm,
+                        "file_name": filename,
                         "file_type": _guess_file_type(ext),
                         "module": module,
                         "tenant_id": None,
-                        "visibility": visibility,
+                        "visibility": "public",
                     },
                 })
 
-    print(f"Found {found_count} files")
-    print(f"Loaded {len(documents)} files ({public_count} marked public)")
-    print(f"Skipped {skipped_count} files")
+    print("--------------------------------------------------")
+    print("[RAG Ingestion Summary]")
+    print(f"  - Markdown (.md) files loaded: {md_count}")
+    print(f"  - PDF (.pdf) files loaded:      {pdf_count}")
+    print(f"  - Ignored non-doc/code files:   {ignored_count} (extensions: {', '.join(sorted(ignored_extensions)) if ignored_extensions else 'none'})")
+    print(f"  - Skipped empty/corrupt files:  {skipped_count}")
+    print(f"  - Total valid documents loaded: {len(documents)}")
+    print("==================================================")
+
     return documents
