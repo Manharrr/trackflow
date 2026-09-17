@@ -11,7 +11,6 @@ from app.config import (
     POSTGRES_DB,
     POSTGRES_USER,
     POSTGRES_PASSWORD,
-    FAISS_INDEX_PATH,
 )
 
 from app.loader import load_documents
@@ -79,15 +78,6 @@ def build_index():
         f"[RAG Ingestion] Index successfully created in PostgreSQL "
         f"collection '{PGVECTOR_COLLECTION}' with {len(lc_documents)} documentation chunks."
     )
-
-    # Rebuild local FAISS index as well
-    try:
-        from langchain_community.vectorstores import FAISS
-        faiss_db = FAISS.from_documents(lc_documents, embeddings)
-        faiss_db.save_local(FAISS_INDEX_PATH)
-        print(f"[RAG Ingestion] FAISS index rebuilt and saved to '{FAISS_INDEX_PATH}'")
-    except Exception as faiss_err:
-        print(f"[RAG Ingestion] FAISS index build note: {faiss_err}")
 
 
 if __name__ == "__main__":
