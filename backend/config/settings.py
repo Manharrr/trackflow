@@ -194,7 +194,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
-    "https://trackflow-indol.vercel.app",
+    # "https://trackflow-indol.vercel.app",
     "https://manhargurukkal.site",
 ]
 
@@ -211,7 +211,8 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': False,
 }
 
-COOKIE_SECURE = False
+COOKIE_SECURE = True
+
 # REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
@@ -223,7 +224,7 @@ REST_FRAMEWORK = {
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://*.localhost:5173",
-    "https://trackflow-indol.vercel.app",
+    # "https://trackflow-indol.vercel.app",
     "https://manhargurukkal.site",
 ]
 
@@ -256,7 +257,7 @@ BASE_DOMAIN = os.getenv("BASE_DOMAIN", "localhost")
 
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "").strip()
-AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "ap-south-1").strip()
+AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "eu-north-1").strip()
 
 if AWS_ACCESS_KEY_ID:
     os.environ["AWS_ACCESS_KEY_ID"] = AWS_ACCESS_KEY_ID
