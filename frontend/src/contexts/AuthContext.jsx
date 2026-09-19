@@ -18,6 +18,25 @@ export { getTenantWorkspaceOrigin }
 
 const AuthContext = createContext()
 
+export const initialState = {
+  user: null,
+  isAuthenticated: false,
+  isLoading: true,
+}
+
+export function authReducer(state, action) {
+  switch (action.type) {
+    case 'LOGIN_SUCCESS':
+      return { ...state, user: action.payload, isAuthenticated: true, isLoading: false }
+    case 'LOGOUT':
+      return { ...state, user: null, isAuthenticated: false, isLoading: false }
+    case 'SET_LOADING':
+      return { ...state, isLoading: action.payload }
+    default:
+      return state
+  }
+}
+
 export function AuthProvider({ children }) {
   const [state, dispatch] = useReducer(authReducer, initialState)
   const [subscription, setSubscription] = useState(null)
