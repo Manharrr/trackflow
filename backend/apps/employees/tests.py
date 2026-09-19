@@ -23,6 +23,10 @@ class EmployeeOnboardingFlowTestCase(TenantTestCase):
 
     @classmethod
     def setUpClass(cls):
+        from django.db import connection
+        connection.set_schema_to_public()
+        from apps.tenants.models import Domain
+        Domain.objects.filter(domain="tenant.test.com").delete()
         super().setUpClass()
         # Explicitly create schema and run tenant migrations since auto_create_schema is False on Client
         cls.tenant.create_schema(check_if_exists=True)
@@ -47,7 +51,10 @@ class EmployeeOnboardingFlowTestCase(TenantTestCase):
             cls.domain.delete()
         except Exception:
             pass
+        from apps.tenants.models import Domain
+        Domain.objects.filter(domain="tenant.test.com").delete()
         cls.remove_allowed_test_domain()
+
 
     def setUp(self):
         super().setUp()

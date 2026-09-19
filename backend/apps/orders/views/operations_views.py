@@ -2,6 +2,7 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from apps.employees.models import Role, Employee
+from apps.tenants.models import Client
 from apps.orders.services.operations_dashboard_service import OperationsDashboardService
 
 
@@ -15,12 +16,13 @@ class IsOperationsManagerOrAdmin(permissions.BasePermission):
             return False
             
         tenant = getattr(request, "tenant", None)
-        if not tenant:
+        if not tenant or not isinstance(tenant, Client):
             return False
 
         user_role = getattr(request.user, "role", None)
         # Check active schema Employee record
         employee = Employee.objects.filter(user=request.user, tenant=tenant).first()
+
         role = employee.role if employee else user_role
         
         return role in [Role.COMPANY_ADMIN, Role.OPERATIONS_MANAGER] or request.user.is_superuser

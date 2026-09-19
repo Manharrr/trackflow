@@ -1,5 +1,6 @@
 from rest_framework.permissions import BasePermission
 from apps.employees.models.employee import Employee, Role
+from apps.tenants.models import Client
 
 
 class IsCompanyAdmin(BasePermission):
@@ -10,7 +11,12 @@ class IsCompanyAdmin(BasePermission):
     message = "Only Company Admin can perform this action."
 
     def has_permission(self, request, view):
-        if not request.user.is_authenticated or not hasattr(request, "tenant"):
+        tenant = getattr(request, "tenant", None)
+        if (
+            not request.user.is_authenticated
+            or not tenant
+            or not isinstance(tenant, Client)
+        ):
             return False
 
         if request.user.is_superuser:
@@ -31,7 +37,12 @@ class IsOperationsManager(BasePermission):
     message = "Only Operations Manager can perform this action."
 
     def has_permission(self, request, view):
-        if not request.user.is_authenticated or not hasattr(request, "tenant"):
+        tenant = getattr(request, "tenant", None)
+        if (
+            not request.user.is_authenticated
+            or not tenant
+            or not isinstance(tenant, Client)
+        ):
             return False
 
         if request.user.is_superuser:
@@ -52,7 +63,12 @@ class IsEmployee(BasePermission):
     message = "Only Employees can perform this action."
 
     def has_permission(self, request, view):
-        if not request.user.is_authenticated or not hasattr(request, "tenant"):
+        tenant = getattr(request, "tenant", None)
+        if (
+            not request.user.is_authenticated
+            or not tenant
+            or not isinstance(tenant, Client)
+        ):
             return False
 
         return Employee.objects.filter(
@@ -70,7 +86,12 @@ class IsCompanyAdminOrOperationsManager(BasePermission):
     message = "You don't have permission to perform this action."
 
     def has_permission(self, request, view):
-        if not request.user.is_authenticated or not hasattr(request, "tenant"):
+        tenant = getattr(request, "tenant", None)
+        if (
+            not request.user.is_authenticated
+            or not tenant
+            or not isinstance(tenant, Client)
+        ):
             return False
 
         if request.user.is_superuser:
@@ -94,7 +115,12 @@ class IsTenantEmployee(BasePermission):
     message = "Access denied. You do not belong to this workspace."
 
     def has_permission(self, request, view):
-        if not request.user.is_authenticated or not hasattr(request, "tenant"):
+        tenant = getattr(request, "tenant", None)
+        if (
+            not request.user.is_authenticated
+            or not tenant
+            or not isinstance(tenant, Client)
+        ):
             return False
 
         if request.user.is_superuser:

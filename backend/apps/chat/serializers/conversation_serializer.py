@@ -15,11 +15,16 @@ class ChatUserSerializer(serializers.ModelSerializer):
 
     def get_role(self, obj):
         request = self.context.get("request")
-        if request and hasattr(request, "tenant"):
-            from apps.employees.models import Employee
-            emp = Employee.objects.filter(user=obj, tenant=request.tenant).first()
-            return emp.role if emp else None
+        if request:
+            tenant = getattr(request, "tenant", None)
+            if tenant:
+                from apps.tenants.models import Client
+                if isinstance(tenant, Client):
+                    from apps.employees.models import Employee
+                    emp = Employee.objects.filter(user=obj, tenant=tenant).first()
+                    return emp.role if emp else None
         return None
+
 
 
 class ConversationSerializer(serializers.ModelSerializer):

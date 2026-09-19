@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from apps.orders.models.order import Order, OrderStatus, OrderPriority
 from apps.employees.models import Employee, Role
+from apps.tenants.models import Client
 
 
 class OrderSerializer(serializers.ModelSerializer):
@@ -22,7 +23,10 @@ class OrderSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if request and request.user:
             # Determine if driver
-            employee = Employee.objects.filter(user=request.user, tenant=request.tenant).first()
+            tenant = getattr(request, "tenant", None)
+            employee = None
+            if tenant and isinstance(tenant, Client):
+                employee = Employee.objects.filter(user=request.user, tenant=tenant).first()
             user_role = getattr(request.user, "role", None)
             is_driver = (
                 (employee and employee.role == Role.EMPLOYEE) or
@@ -32,6 +36,7 @@ class OrderSerializer(serializers.ModelSerializer):
             if is_driver:
                 rep.pop("internal_notes", None)
         return rep
+
 
 
 class OrderCreateSerializer(serializers.ModelSerializer):

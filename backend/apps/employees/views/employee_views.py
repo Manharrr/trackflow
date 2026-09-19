@@ -353,14 +353,19 @@ class EmployeeDashboardAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        employee = Employee.objects.filter(
-            user=request.user,
-            tenant=request.tenant
-        ).first()
+        tenant = getattr(request, "tenant", None)
+        from apps.tenants.models import Client
+        employee = None
+        if tenant and isinstance(tenant, Client):
+            employee = Employee.objects.filter(
+                user=request.user,
+                tenant=tenant
+            ).first()
 
         employee_name = employee.full_name if employee else (request.user.first_name or "Employee")
-        company_name = request.tenant.name if hasattr(request, "tenant") else "TrackFlow AI"
+        company_name = tenant.name if tenant and isinstance(tenant, Client) else "TrackFlow AI"
         current_date = timezone.now().strftime("%A, %B %d, %Y")
+
 
         # Dynamic profile completion calculation
         profile_completion = 0

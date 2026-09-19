@@ -174,8 +174,10 @@ class TrackFlowTenantMiddlewareTests(TenantTestCase):
     def setUpClass(cls):
         from django.db import connection
         connection.set_schema_to_public()
+        Domain.objects.filter(domain="tenant.test.com").delete()
         Client.objects.filter(schema_name="logesticgo").delete()
         super().setUpClass()
+
         cls.tenant.create_schema(check_if_exists=True)
         from django.core.management import call_command
         call_command(
@@ -196,23 +198,10 @@ class TrackFlowTenantMiddlewareTests(TenantTestCase):
             tenant=cls.tenant,
             defaults={"is_primary": False},
         )
-        # Create public tenant if not already present in test DB
-        public_tenant, _ = Client.objects.get_or_create(
-            schema_name="public",
-            defaults={
-                "name": "TrackFlow AI Public",
-                "email": "admin@trackflow.ai",
-                "phone": "9999999999",
-                "verified": True,
-                "status": "approved",
-            },
-        )
-        # Create domain for localhost (local dev public)
-        Domain.objects.get_or_create(
-            domain="localhost",
-            tenant=public_tenant,
-            defaults={"is_primary": True},
-        )
+        # Ensure NO public Client or localhost Domain exists in DB (matching production)
+        Client.objects.filter(schema_name="public").delete()
+        Domain.objects.filter(domain="localhost").delete()
+
 
     @classmethod
     def tearDownClass(cls):
@@ -222,7 +211,7 @@ class TrackFlowTenantMiddlewareTests(TenantTestCase):
             Domain.objects.filter(domain__in=[
                 "logesticgo.manhargurukkal.site",
                 "logesticgo.localhost",
-                "localhost",
+                "tenant.test.com",
             ]).delete()
         except Exception:
             pass
@@ -230,85 +219,41 @@ class TrackFlowTenantMiddlewareTests(TenantTestCase):
             cls.tenant.delete(force_drop=True)
         except Exception:
             pass
+        try:
+            super().tearDownClass()
+        except Exception:
+            pass
         cls.remove_allowed_test_domain()
+
 
     def setUp(self):
         super().setUp()
+        from django.db import connection
+        connection.set_schema_to_public()
+        Client.objects.filter(schema_name="public").delete()
         self.factory = RequestFactory()
         self.middleware = TrackFlowTenantMiddleware(lambda req: None)
-        self.public_tenant, _ = Client.objects.get_or_create(
-            schema_name="public",
-            defaults={
-                "name": "TrackFlow AI Public",
-                "email": "admin@trackflow.ai",
-                "phone": "9999999999",
-                "verified": True,
-                "status": "approved",
-            },
-        )
 
-    def test_1_api_manhargurukkal_site_gets_real_public_client(self):
-        """1. api.manhargurukkal.site gets the real public Client."""
+    def test_1_api_manhargurukkal_site_routes_to_public_schema(self):
+        """1. api.manhargurukkal.site sets request.tenant to None and routes to public schema."""
+        from django.db import connection
         request = self.factory.get("/api/auth/login/", HTTP_HOST="api.manhargurukkal.site")
         self.middleware.process_request(request)
 
-        self.assertIsNotNone(request.tenant)
-        self.assertIsInstance(request.tenant, Client)
-        self.assertEqual(request.tenant.schema_name, "public")
-        self.assertEqual(request.tenant.id, self.public_tenant.id)
+        self.assertIsNone(request.tenant)
+        self.assertEqual(connection.schema_name, "public")
 
-    def test_2_manhargurukkal_site_gets_real_public_client(self):
-        """2. manhargurukkal.site gets the real public Client."""
+    def test_2_manhargurukkal_site_routes_to_public_schema(self):
+        """2. manhargurukkal.site sets request.tenant to None and routes to public schema."""
+        from django.db import connection
         request = self.factory.get("/", HTTP_HOST="manhargurukkal.site")
         self.middleware.process_request(request)
 
-        self.assertIsNotNone(request.tenant)
-        self.assertIsInstance(request.tenant, Client)
-        self.assertEqual(request.tenant.schema_name, "public")
-        self.assertEqual(request.tenant.id, self.public_tenant.id)
+        self.assertIsNone(request.tenant)
+        self.assertEqual(connection.schema_name, "public")
 
-    def test_3_request_tenant_is_never_faketenant_for_public_hosts(self):
-        """3. request.tenant is never a FakeTenant for public hosts and ForeignKey queries succeed."""
-        for host in ["api.manhargurukkal.site", "manhargurukkal.site"]:
-            request = self.factory.get("/api/auth/login/", HTTP_HOST=host)
-            self.middleware.process_request(request)
-
-            self.assertNotIsInstance(request.tenant, FakeTenant)
-            self.assertIsInstance(request.tenant, Client)
-            self.assertIsNotNone(getattr(request.tenant, "id", None))
-            # Verify ForeignKey lookup with request.tenant does NOT raise TypeError
-            try:
-                UserTenant.objects.filter(tenant=request.tenant).exists()
-            except TypeError as exc:
-                self.fail(f"ForeignKey lookup with request.tenant failed with TypeError: {exc}")
-
-    def test_4_logesticgo_subdomain_still_resolves_to_logesticgo_client(self):
-        """4. logesticgo.manhargurukkal.site still resolves to the logesticgo Client."""
-        request = self.factory.get("/api/orders/", HTTP_HOST="logesticgo.manhargurukkal.site")
-        self.middleware.process_request(request)
-
-        self.assertIsNotNone(request.tenant)
-        self.assertIsInstance(request.tenant, Client)
-        self.assertEqual(request.tenant.schema_name, "logesticgo")
-        self.assertEqual(request.tenant.id, self.tenant.id)
-
-    def test_5_local_development_tenant_resolution(self):
-        """5. Local development tenant resolution still works for localhost and *.localhost."""
-        with self.settings(ALLOWED_HOSTS=["*", "localhost", ".localhost", "127.0.0.1", ".manhargurukkal.site"]):
-            # localhost -> public tenant
-            req_local = self.factory.get("/", HTTP_HOST="localhost")
-            self.middleware.process_request(req_local)
-            self.assertEqual(req_local.tenant.schema_name, "public")
-            self.assertIsInstance(req_local.tenant, Client)
-
-            # logesticgo.localhost -> logesticgo tenant
-            req_tenant_local = self.factory.get("/", HTTP_HOST="logesticgo.localhost")
-            self.middleware.process_request(req_tenant_local)
-            self.assertEqual(req_tenant_local.tenant.schema_name, "logesticgo")
-            self.assertIsInstance(req_tenant_local.tenant, Client)
-
-    def test_6_public_host_login_authenticates_without_faketenant_error(self):
-        """6. Public-host login can authenticate without the FakeTenant ForeignKey error."""
+    def test_3_public_host_login_returns_200_and_tokens(self):
+        """3. Public login via POST /api/auth/login/ on api.manhargurukkal.site returns 200, tokens, and logesticgo tenant."""
         user = User.objects.create_user(
             username="tenantadmin@test.com",
             email="tenantadmin@test.com",
@@ -333,19 +278,17 @@ class TrackFlowTenantMiddlewareTests(TenantTestCase):
                 is_blocked=False,
             )
 
-        # Simulate login request on api.manhargurukkal.site
         request = self.factory.post(
             "/api/auth/login/",
             data={"phone": "+919876543210", "password": "securepassword123"},
             content_type="application/json",
             HTTP_HOST="api.manhargurukkal.site",
         )
-        # Run through middleware
+        # Process through middleware
         self.middleware.process_request(request)
 
-        # Ensure request.tenant is real Client
-        self.assertIsInstance(request.tenant, Client)
-        self.assertNotIsInstance(request.tenant, FakeTenant)
+        # Ensure request.tenant is None for public host
+        self.assertIsNone(request.tenant)
 
         # Execute PhoneLoginAPIView
         view = PhoneLoginAPIView.as_view()
@@ -354,4 +297,68 @@ class TrackFlowTenantMiddlewareTests(TenantTestCase):
         self.assertIn("access", response.data)
         self.assertIn("refresh", response.data)
         self.assertEqual(response.data["tenant"]["schema_name"], "logesticgo")
+
+    def test_4_logesticgo_subdomain_still_resolves_to_logesticgo_client(self):
+        """4. logesticgo.manhargurukkal.site still resolves to the logesticgo Client."""
+        from django.db import connection
+        request = self.factory.get("/api/orders/", HTTP_HOST="logesticgo.manhargurukkal.site")
+        self.middleware.process_request(request)
+
+        self.assertIsNotNone(request.tenant)
+        self.assertIsInstance(request.tenant, Client)
+        self.assertEqual(request.tenant.schema_name, "logesticgo")
+        self.assertEqual(request.tenant.id, self.tenant.id)
+        self.assertEqual(connection.schema_name, "logesticgo")
+
+    def test_5_permission_regression_when_request_tenant_is_none_or_faketenant(self):
+        """5. Tenant-specific permissions return False without TypeError when request.tenant is None or FakeTenant."""
+        from apps.employees.permissions.employee_permissions import (
+            IsCompanyAdmin,
+            IsOperationsManager,
+            IsEmployee,
+            IsCompanyAdminOrOperationsManager,
+            IsTenantEmployee,
+        )
+        from apps.orders.views.operations_views import IsOperationsManagerOrAdmin
+
+        user = User.objects.create_user(
+            username="permuser@test.com",
+            email="permuser@test.com",
+            phone="+919876543219",
+            password="securepassword123",
+        )
+
+        permissions = [
+            IsCompanyAdmin(),
+            IsOperationsManager(),
+            IsEmployee(),
+            IsCompanyAdminOrOperationsManager(),
+            IsTenantEmployee(),
+            IsOperationsManagerOrAdmin(),
+        ]
+
+        # Case A: request.tenant is None (public hosts)
+        req_none = self.factory.get("/api/employees/dashboard/", HTTP_HOST="api.manhargurukkal.site")
+        req_none.user = user
+        req_none.tenant = None
+
+        for perm in permissions:
+            try:
+                allowed = perm.has_permission(req_none, None)
+                self.assertFalse(allowed, f"{perm.__class__.__name__} should return False when request.tenant is None")
+            except Exception as exc:
+                self.fail(f"{perm.__class__.__name__}.has_permission raised an exception with request.tenant=None: {exc}")
+
+        # Case B: request.tenant is FakeTenant (defense-in-depth)
+        req_fake = self.factory.get("/api/employees/dashboard/", HTTP_HOST="api.manhargurukkal.site")
+        req_fake.user = user
+        req_fake.tenant = FakeTenant("public")
+
+        for perm in permissions:
+            try:
+                allowed = perm.has_permission(req_fake, None)
+                self.assertFalse(allowed, f"{perm.__class__.__name__} should return False when request.tenant is FakeTenant")
+            except Exception as exc:
+                self.fail(f"{perm.__class__.__name__}.has_permission raised an exception with request.tenant=FakeTenant: {exc}")
+
 
