@@ -199,6 +199,41 @@ export const getTenantWorkspaceOrigin = (tenantOrUrl, windowObj = (typeof window
 };
 
 /**
+ * Resolves the root public origin.
+ * In local environment: http://localhost:5173
+ * In production: https://manhargurukkal.site
+ */
+export const getRootOrigin = (windowObj = (typeof window !== 'undefined' ? window : null)) => {
+  if (!windowObj?.location) return 'https://manhargurukkal.site';
+  const hostname = windowObj.location.hostname || '';
+  const isLocal =
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname === '127.0.0.1';
+
+  if (isLocal) {
+    const port = windowObj.location.port ? `:${windowObj.location.port}` : ':5173';
+    const protocol = windowObj.location.protocol || 'http:';
+    return `${protocol}//localhost${port}`;
+  }
+
+  return 'https://manhargurukkal.site';
+};
+
+/**
+ * Checks whether the current window location is on the root public domain.
+ */
+export const isRootOrigin = (windowObj = (typeof window !== 'undefined' ? window : null)) => {
+  if (!windowObj?.location) return true;
+  const hostname = (windowObj.location.hostname || '').toLowerCase();
+  if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
+  if (hostname === 'manhargurukkal.site' || hostname === 'www.manhargurukkal.site') return true;
+  return false;
+};
+
+
+
+/**
  * Builds dynamic redirect URL to tenant workspace if on a different origin.
  * Returns absolute URL string with auth_transfer if redirection is required, or null if already on target origin.
  */

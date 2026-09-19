@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
 import axiosInstance from '../api/axios'
 import { useAuth, getTenantWorkspaceOrigin } from '../contexts/AuthContext'
+import { buildTenantRedirectUrl } from '../services/authSession'
 import toast from 'react-hot-toast'
 import { ShieldCheck, Fingerprint, ArrowLeft } from 'lucide-react'
 
@@ -53,13 +54,14 @@ export default function MFAPage() {
                 return
             }
 
-            const targetOrigin = getTenantWorkspaceOrigin(tenant || workspaceUrl || me?.tenant || me?.user?.tenant)
-            if (targetOrigin && window.location.origin !== targetOrigin) {
-                const url = new URL(`${targetOrigin}/dashboard`)
-                if (refreshToken) {
-                    url.searchParams.set("auth_transfer", refreshToken)
-                }
-                window.location.replace(url.toString())
+            const redirectUrl = buildTenantRedirectUrl({
+                tenant: tenant || workspaceUrl || me?.tenant || me?.user?.tenant,
+                currentOrigin: window.location.origin,
+                targetPath: '/dashboard',
+                refreshToken: refreshToken,
+            })
+            if (redirectUrl) {
+                window.location.replace(redirectUrl)
                 return
             }
 

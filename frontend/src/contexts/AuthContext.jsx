@@ -10,11 +10,13 @@ import {
   setLoggingOut,
   isLoggingOut,
   getTenantWorkspaceOrigin,
+  getRootOrigin,
+  isRootOrigin,
   buildTenantRedirectUrl,
   cleanAuthTransferFromUrl,
 } from '../services/authSession'
 
-export { getTenantWorkspaceOrigin }
+export { getTenantWorkspaceOrigin, getRootOrigin, isRootOrigin }
 
 const AuthContext = createContext()
 
@@ -135,7 +137,13 @@ export function AuthProvider({ children }) {
           if (tenantOrigin && window.location.origin !== tenantOrigin) {
             const path = window.location.pathname
             if (path.startsWith('/dashboard') || path.startsWith('/operations') || path.startsWith('/employee') || path.startsWith('/payment')) {
-              window.location.replace(`${tenantOrigin}${path}${window.location.search}`)
+              const redirectUrl = buildTenantRedirectUrl({
+                tenant: meRes.data.tenant || meRes.data,
+                currentOrigin: window.location.origin,
+                targetPath: `${path}${window.location.search}`,
+                refreshToken: activeRefreshToken,
+              })
+              window.location.replace(redirectUrl || `${tenantOrigin}${path}${window.location.search}`)
               return
             }
           }
@@ -172,7 +180,8 @@ export function AuthProvider({ children }) {
             // No refresh token available; abort without calling refresh endpoint
             clearStoredTokens(axiosInstance)
             dispatch({ type: 'LOGOUT' })
-            window.location.href = `${window.location.origin}/?logged_out=true`
+            const rootOrigin = getRootOrigin(window)
+            window.location.href = `${rootOrigin}/?logged_out=true`
             return Promise.reject(error)
           }
 
@@ -184,7 +193,8 @@ export function AuthProvider({ children }) {
           } catch (err) {
             clearStoredTokens(axiosInstance)
             dispatch({ type: 'LOGOUT' })
-            window.location.href = `${window.location.origin}/?logged_out=true`
+            const rootOrigin = getRootOrigin(window)
+            window.location.href = `${rootOrigin}/?logged_out=true`
             return Promise.reject(err)
           }
         }
@@ -405,7 +415,8 @@ export function AuthProvider({ children }) {
       setSubscription(null)
       dispatch({ type: 'LOGOUT' })
       setLoggingOut(false)
-      window.location.href = `${window.location.origin}/?logged_out=true`
+      const rootOrigin = getRootOrigin(window)
+      window.location.href = `${rootOrigin}/?logged_out=true`
     }
   }
 

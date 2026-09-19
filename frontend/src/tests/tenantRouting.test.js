@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   getTenantWorkspaceOrigin,
+  getRootOrigin,
+  isRootOrigin,
   buildTenantRedirectUrl,
   cleanAuthTransferFromUrl,
 } from '../services/authSession.js';
@@ -239,5 +241,59 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
 
     assert.equal(targetOrigin, currentOrigin);
     assert.equal(mockWindow.location.origin, 'https://logesticgo.manhargurukkal.site');
+  });
+
+  test('10. Root login remains https://manhargurukkal.site/login and does not redirect before authentication', () => {
+    mockWindow.location.hostname = 'manhargurukkal.site';
+    mockWindow.location.origin = 'https://manhargurukkal.site';
+    mockWindow.location.pathname = '/login';
+
+    assert.equal(isRootOrigin(mockWindow), true);
+    assert.equal(getRootOrigin(mockWindow), 'https://manhargurukkal.site');
+
+    // For unauthenticated user on root, no cross-origin redirection is triggered
+    const targetOrigin = getTenantWorkspaceOrigin(null, mockWindow);
+    assert.equal(targetOrigin, null);
+  });
+
+  test('11. Unauthenticated request to tenant login redirects to root login', () => {
+    mockWindow.location.hostname = 'logesticgo.manhargurukkal.site';
+    mockWindow.location.origin = 'https://logesticgo.manhargurukkal.site';
+    mockWindow.location.pathname = '/login';
+
+    assert.equal(isRootOrigin(mockWindow), false);
+    const rootLoginUrl = `${getRootOrigin(mockWindow)}/login`;
+    assert.equal(rootLoginUrl, 'https://manhargurukkal.site/login');
+  });
+
+  test('12. Unauthenticated request on tenant protected route redirects to root login', () => {
+    mockWindow.location.hostname = 'logesticgo.manhargurukkal.site';
+    mockWindow.location.origin = 'https://logesticgo.manhargurukkal.site';
+    mockWindow.location.pathname = '/dashboard';
+
+    assert.equal(isRootOrigin(mockWindow), false);
+    const targetRedirect = isRootOrigin(mockWindow) ? '/login' : `${getRootOrigin(mockWindow)}/login`;
+    assert.equal(targetRedirect, 'https://manhargurukkal.site/login');
+  });
+
+  test('13. Logout always returns the browser to root domain landing page', () => {
+    mockWindow.location.hostname = 'logesticgo.manhargurukkal.site';
+    mockWindow.location.origin = 'https://logesticgo.manhargurukkal.site';
+    mockWindow.location.pathname = '/dashboard';
+
+    const rootOrigin = getRootOrigin(mockWindow);
+    const logoutRedirect = `${rootOrigin}/?logged_out=true`;
+    assert.equal(logoutRedirect, 'https://manhargurukkal.site/?logged_out=true');
+    assert.notEqual(logoutRedirect, 'https://logesticgo.manhargurukkal.site/?logged_out=true');
+  });
+
+  test('14. Local development environment correctly resolves localhost root origin', () => {
+    mockWindow.location.hostname = 'logesticgo.localhost';
+    mockWindow.location.origin = 'http://logesticgo.localhost:5173';
+    mockWindow.location.protocol = 'http:';
+    mockWindow.location.port = '5173';
+
+    assert.equal(isRootOrigin(mockWindow), false);
+    assert.equal(getRootOrigin(mockWindow), 'http://localhost:5173');
   });
 });

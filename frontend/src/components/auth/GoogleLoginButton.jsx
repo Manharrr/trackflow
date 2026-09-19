@@ -2,6 +2,7 @@ import { GoogleLogin } from '@react-oauth/google'
 import { useNavigate } from 'react-router-dom'
 
 import { useAuth, getTenantWorkspaceOrigin } from '../../contexts/AuthContext'
+import { buildTenantRedirectUrl, getStoredRefreshToken } from '../../services/authSession'
 
 export default function GoogleLoginButton() {
 
@@ -58,13 +59,14 @@ export default function GoogleLoginButton() {
                 return;
             }
 
-            const targetOrigin = getTenantWorkspaceOrigin(data.tenant || data.user?.tenant);
-            if (targetOrigin && window.location.origin !== targetOrigin) {
-                const url = new URL(`${targetOrigin}/dashboard`);
-                if (data.refresh) {
-                    url.searchParams.set("auth_transfer", data.refresh);
-                }
-                window.location.replace(url.toString());
+            const redirectUrl = buildTenantRedirectUrl({
+                tenant: data.tenant || data.user?.tenant,
+                currentOrigin: window.location.origin,
+                targetPath: '/dashboard',
+                refreshToken: data.refresh || getStoredRefreshToken(),
+            });
+            if (redirectUrl) {
+                window.location.replace(redirectUrl);
                 return;
             }
 

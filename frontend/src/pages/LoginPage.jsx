@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useAuth, getTenantWorkspaceOrigin } from "../contexts/AuthContext";
+import { buildTenantRedirectUrl, getStoredRefreshToken } from "../services/authSession";
 import GoogleLoginButton from "../components/auth/GoogleLoginButton";
 import toast from "react-hot-toast";
 
@@ -132,10 +133,14 @@ export default function LoginPage() {
             return;
         }
 
-        const targetOrigin = getTenantWorkspaceOrigin(data.tenant || data.user?.tenant);
-        if (targetOrigin && window.location.origin !== targetOrigin) {
-            const destUrl = `${targetOrigin}/dashboard`;
-            window.location.replace(destUrl);
+        const redirectUrl = buildTenantRedirectUrl({
+            tenant: data.tenant || data.user?.tenant,
+            currentOrigin: window.location.origin,
+            targetPath: '/dashboard',
+            refreshToken: data.refresh || getStoredRefreshToken(),
+        });
+        if (redirectUrl) {
+            window.location.replace(redirectUrl);
             return;
         }
 

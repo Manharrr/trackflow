@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom'
-import { useAuth, getTenantWorkspaceOrigin } from '../contexts/AuthContext'
+import { useAuth, getTenantWorkspaceOrigin, getRootOrigin, isRootOrigin } from '../contexts/AuthContext'
+import { buildTenantRedirectUrl, getStoredRefreshToken } from '../services/authSession'
 
 // Centralized permission map matching exact paths and patterns using RegExp
 const ROUTE_PERMISSIONS = {
@@ -55,6 +56,10 @@ export default function ProtectedRoute({ children }) {
   }
 
   if (!isAuthenticated) {
+    if (!isRootOrigin()) {
+      window.location.replace(`${getRootOrigin()}/login`)
+      return null
+    }
     return <Navigate to="/login" replace state={{ from: location }} />
   }
 
@@ -73,8 +78,13 @@ export default function ProtectedRoute({ children }) {
   if (role !== 'super_admin') {
     const tenantOrigin = getTenantWorkspaceOrigin(user?.tenant || user?.tenant_data || user)
     if (tenantOrigin && window.location.origin !== tenantOrigin) {
-      const targetUrl = `${tenantOrigin}${location.pathname}${location.search}`
-      window.location.replace(targetUrl)
+      const redirectUrl = buildTenantRedirectUrl({
+        tenant: user?.tenant || user?.tenant_data || user,
+        currentOrigin: window.location.origin,
+        targetPath: `${location.pathname}${location.search}`,
+        refreshToken: getStoredRefreshToken(),
+      })
+      window.location.replace(redirectUrl || `${tenantOrigin}${location.pathname}${location.search}`)
       return null
     }
   }

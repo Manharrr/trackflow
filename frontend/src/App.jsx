@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth, getTenantWorkspaceOrigin } from './contexts/AuthContext'
+import { useAuth, getTenantWorkspaceOrigin, getRootOrigin, isRootOrigin } from './contexts/AuthContext'
+import { buildTenantRedirectUrl, getStoredRefreshToken } from './services/authSession'
 
 import ProtectedRoute from './routes/ProtectedRoute'
 import DashboardLayout from './layouts/DashboardLayout'
@@ -62,6 +63,13 @@ function PublicRoute({ children }) {
         return null
     }
 
+    // Tenant subdomains are dedicated workspaces for authenticated users.
+    // Unauthenticated access to public auth pages (/login, /register) on tenant subdomains must redirect to the root login.
+    if (!isRootOrigin() && !isAuthenticated) {
+        window.location.replace(`${getRootOrigin()}/login`)
+        return null
+    }
+
     if (isAuthenticated) {
         const role = user?.role || user?.user?.role
         if (role === 'super_admin') {
@@ -70,7 +78,13 @@ function PublicRoute({ children }) {
 
         const tenantOrigin = getTenantWorkspaceOrigin(user?.tenant || user?.tenant_data || user)
         if (tenantOrigin && window.location.origin !== tenantOrigin) {
-            window.location.replace(`${tenantOrigin}/dashboard`)
+            const redirectUrl = buildTenantRedirectUrl({
+                tenant: user?.tenant || user?.tenant_data || user,
+                currentOrigin: window.location.origin,
+                targetPath: '/dashboard',
+                refreshToken: getStoredRefreshToken(),
+            })
+            window.location.replace(redirectUrl || `${tenantOrigin}/dashboard`)
             return null
         }
 
