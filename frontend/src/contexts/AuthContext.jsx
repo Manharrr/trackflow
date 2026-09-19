@@ -1,6 +1,15 @@
 import { createContext, useContext, useReducer, useEffect, useRef, useState } from 'react'
 import axiosInstance from '../api/axios'
 import { getSubscriptionStatus } from '../services/paymentService'
+import {
+  getStoredRefreshToken,
+  setStoredRefreshToken,
+  setStoredAccessToken,
+  clearStoredTokens,
+  createTokenRefresher,
+  setLoggingOut,
+  isLoggingOut,
+} from '../services/authSession'
 
 const AuthContext = createContext()
 
@@ -79,9 +88,17 @@ export function AuthProvider({ children }) {
   const [state, dispatch] = useReducer(authReducer, initialState)
   const [subscription, setSubscription] = useState(null)
   const [isSubscriptionLoading, setIsSubscriptionLoading] = useState(false)
-  const accessTokenRef = useRef(null)
-  const refreshPromiseRef = useRef(null)
   const isInitializingRef = useRef(false)
+  const tokenRefresher = useRef(null)
+
+  if (!tokenRefresher.current) {
+    tokenRefresher.current = createTokenRefresher({
+      axiosClient: axiosInstance,
+      onLogout: () => {
+        dispatch({ type: 'LOGOUT' })
+      },
+    })
+  }
 
   const refreshSubscription = async (params = {}) => {
     try {
@@ -95,35 +112,11 @@ export function AuthProvider({ children }) {
   }
 
   const setAccessToken = (token) => {
-    accessTokenRef.current = token
-    if (token) {
-      axiosInstance.defaults.headers.common['Authorization'] = `Bearer ${token}`
-    } else {
-      delete axiosInstance.defaults.headers.common['Authorization']
-    }
+    setStoredAccessToken(token, axiosInstance)
   }
 
   const refreshAccessToken = async (customRefreshToken = null) => {
-    if (refreshPromiseRef.current) {
-      return refreshPromiseRef.current
-    }
-
-    refreshPromiseRef.current = (async () => {
-      try {
-        const payload = customRefreshToken ? { refresh: customRefreshToken } : {}
-        const refreshRes = await axiosInstance.post('/auth/token/refresh/', payload)
-        setAccessToken(refreshRes.data.access)
-        return refreshRes.data.access
-      } catch (err) {
-        setAccessToken(null)
-        dispatch({ type: 'LOGOUT' })
-        throw err
-      } finally {
-        refreshPromiseRef.current = null
-      }
-    })()
-
-    return refreshPromiseRef.current
+    return tokenRefresher.current.refresh(customRefreshToken)
   }
 
   // Application Startup & Initialization Flow
@@ -137,6 +130,7 @@ export function AuthProvider({ children }) {
 
       if (urlRefreshToken) {
         sessionStorage.removeItem('logged_out')
+        setStoredRefreshToken(urlRefreshToken)
       }
 
       const isLoggedOut = urlParams.get('logged_out') === 'true' || sessionStorage.getItem('logged_out') === 'true'
@@ -149,14 +143,24 @@ export function AuthProvider({ children }) {
           window.history.replaceState({}, '', newPath)
         }
         sessionStorage.removeItem('logged_out')
-        setAccessToken(null)
+        clearStoredTokens(axiosInstance)
+        dispatch({ type: 'LOGOUT' })
+        isInitializingRef.current = false
+        return
+      }
+
+      const activeRefreshToken = urlRefreshToken || getStoredRefreshToken()
+
+      // If no refresh token exists, do NOT make a refresh request
+      if (!activeRefreshToken) {
+        clearStoredTokens(axiosInstance)
         dispatch({ type: 'LOGOUT' })
         isInitializingRef.current = false
         return
       }
 
       try {
-        await refreshAccessToken(urlRefreshToken)
+        await refreshAccessToken(activeRefreshToken)
 
         if (urlRefreshToken) {
           urlParams.delete('auth_transfer')
@@ -178,7 +182,8 @@ export function AuthProvider({ children }) {
         }
         dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
       } catch {
-        // Handled by refreshAccessToken logging out
+        clearStoredTokens(axiosInstance)
+        dispatch({ type: 'LOGOUT' })
       } finally {
         isInitializingRef.current = false
       }
@@ -197,16 +202,29 @@ export function AuthProvider({ children }) {
           error.response?.status === 401 &&
           !originalRequest._retry &&
           !isInitializingRef.current &&
+          !isLoggingOut() &&
           originalRequest.url &&
           !originalRequest.url.includes('/auth/logout/') &&
-          !originalRequest.url.includes('/auth/token/refresh/')
+          !originalRequest.url.includes('/auth/token/refresh/') &&
+          !originalRequest.url.includes('/auth/login/')
         ) {
+          const storedRefresh = getStoredRefreshToken()
+          if (!storedRefresh) {
+            // No refresh token available; abort without calling refresh endpoint
+            clearStoredTokens(axiosInstance)
+            dispatch({ type: 'LOGOUT' })
+            window.location.href = `${window.location.origin}/?logged_out=true`
+            return Promise.reject(error)
+          }
+
           originalRequest._retry = true
           try {
             const newAccess = await refreshAccessToken()
             originalRequest.headers['Authorization'] = `Bearer ${newAccess}`
             return axiosInstance(originalRequest)
           } catch (err) {
+            clearStoredTokens(axiosInstance)
+            dispatch({ type: 'LOGOUT' })
             window.location.href = `${window.location.origin}/?logged_out=true`
             return Promise.reject(err)
           }
@@ -233,6 +251,9 @@ export function AuthProvider({ children }) {
 
     if (res.data.access) {
       setAccessToken(res.data.access)
+    }
+    if (res.data.refresh) {
+      setStoredRefreshToken(res.data.refresh)
     }
 
     const currentOrigin = window.location.origin
@@ -296,6 +317,9 @@ export function AuthProvider({ children }) {
     if (res.data.access) {
       setAccessToken(res.data.access)
     }
+    if (res.data.refresh) {
+      setStoredRefreshToken(res.data.refresh)
+    }
 
     const currentOrigin = window.location.origin
     const targetOrigin = getTenantWorkspaceOrigin(res.data.tenant)
@@ -347,13 +371,24 @@ export function AuthProvider({ children }) {
     const res = await axiosInstance.post('/auth/register/', {
       email, username, password, confirm_password,
     })
-    setAccessToken(res.data.access)
+    if (res.data.access) {
+      setAccessToken(res.data.access)
+    }
+    if (res.data.refresh) {
+      setStoredRefreshToken(res.data.refresh)
+    }
     dispatch({ type: 'LOGIN_SUCCESS', payload: res.data.user })
     return res.data
   }
 
   const completeMfaLogin = async (token, workspaceUrl = null, refreshToken = null, tenant = null) => {
-    setAccessToken(token)
+    if (token) {
+      setAccessToken(token)
+    }
+    if (refreshToken) {
+      setStoredRefreshToken(refreshToken)
+    }
+
     const currentOrigin = window.location.origin
     const targetOrigin = getTenantWorkspaceOrigin(tenant || workspaceUrl)
 
@@ -401,13 +436,19 @@ export function AuthProvider({ children }) {
   }
 
   const logout = async () => {
+    setLoggingOut(true)
     try {
       sessionStorage.removeItem('logged_out')
-      await axiosInstance.post('/auth/logout/')
+      sessionStorage.setItem('logged_out', 'true')
+      const currentRefresh = getStoredRefreshToken()
+      await axiosInstance.post('/auth/logout/', currentRefresh ? { refresh: currentRefresh } : {})
+    } catch {
+      // Ignore logout API failures
     } finally {
-      setAccessToken(null)
+      clearStoredTokens(axiosInstance)
       setSubscription(null)
       dispatch({ type: 'LOGOUT' })
+      setLoggingOut(false)
       window.location.href = `${window.location.origin}/?logged_out=true`
     }
   }
