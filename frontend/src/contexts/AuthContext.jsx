@@ -83,9 +83,9 @@ export function AuthProvider({ children }) {
   const refreshPromiseRef = useRef(null)
   const isInitializingRef = useRef(false)
 
-  const refreshSubscription = async () => {
+  const refreshSubscription = async (params = {}) => {
     try {
-      const res = await getSubscriptionStatus()
+      const res = await getSubscriptionStatus(params)
       setSubscription(res.data)
       return res.data
     } catch (err) {
@@ -416,6 +416,7 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider value={{
       ...state,
       subscription,
+      setSubscription,
       isSubscriptionLoading,
       refreshSubscription,
       login,

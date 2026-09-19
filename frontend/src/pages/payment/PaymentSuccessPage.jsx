@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 
 export default function PaymentSuccessPage() {
-  const { refreshSubscription } = useAuth()
+  const { user, setSubscription, refreshSubscription } = useAuth()
   const navigate = useNavigate()
   const [status, setStatus] = useState('verifying') // 'verifying' | 'active' | 'pending' | 'error'
   const [subscriptionData, setSubscriptionData] = useState(null)
@@ -20,26 +20,70 @@ export default function PaymentSuccessPage() {
   const [pollCount, setPollCount] = useState(0)
   const maxPolls = 5
   const pollTimerRef = useRef(null)
+  const hasRedirectedRef = useRef(false)
+
+  const redirectToDashboard = (activeData) => {
+    if (hasRedirectedRef.current) return
+    hasRedirectedRef.current = true
+
+    // Clean query parameters from URL so session_id is removed from history
+    if (window.history.replaceState) {
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+
+    // Check if on bare root production domain without tenant subdomain (e.g. exactly 'manhargurukkal.site')
+    const currentHostname = window.location.hostname
+    const tenantSchema = activeData?.tenant?.schema_name || user?.tenant?.schema_name
+    const isRootProduction = currentHostname === 'manhargurukkal.site' || currentHostname === 'www.manhargurukkal.site'
+
+    if (isRootProduction && tenantSchema) {
+      // Exactly one redirect to tenant subdomain
+      window.location.href = `https://${tenantSchema}.manhargurukkal.site/dashboard`
+      return
+    }
+
+    // Standard client-side React Router navigation (preserves current tenant subdomain or local dev)
+    navigate('/dashboard', { replace: true })
+  }
 
   const verifyPayment = async () => {
+    if (hasRedirectedRef.current) return
     setStatus('verifying')
     setErrorMessage(null)
 
     try {
+      // 1. Read session_id from the URL
       const urlParams = new URLSearchParams(window.location.search)
       const sessionId = urlParams.get('session_id')
-      const response = await getSubscriptionStatus(sessionId ? { session_id: sessionId } : {})
-      const data = response.data
+      const params = sessionId ? { session_id: sessionId } : {}
+
+      // 2. Call getSubscriptionStatus({ session_id })
+      const response = await getSubscriptionStatus(params)
+      const data = response?.data
       setSubscriptionData(data)
 
+      // 3. Confirm subscription_status === 'active'
       if (data?.subscription_status === 'active') {
         setStatus('active')
-        // Sync context state
-        refreshSubscription().catch(() => { })
-        // Smooth auto-redirect to dashboard after brief display
-        setTimeout(() => {
-          navigate('/dashboard', { replace: true })
-        }, 1000)
+
+        // 4 & 5. Update AuthContext subscription state via ONE session-aware refreshSubscription call
+        let activeData = data
+        if (typeof refreshSubscription === 'function') {
+          const refreshed = await refreshSubscription(params)
+          if (refreshed) {
+            activeData = refreshed
+          }
+        } else if (typeof setSubscription === 'function') {
+          setSubscription(data)
+        }
+
+        // 6. Use the resulting active subscription data
+        setSubscriptionData(activeData)
+
+        // 7. Call redirectToDashboard(activeData) exactly once
+        redirectToDashboard(activeData)
+
+        // 8. Return
         return
       }
 
@@ -114,7 +158,7 @@ export default function PaymentSuccessPage() {
             </p>
 
             <button
-              onClick={() => navigate('/dashboard', { replace: true })}
+              onClick={() => redirectToDashboard(subscriptionData)}
               className="w-full bg-gradient-to-r from-primary to-primary-dark hover:opacity-95 text-white h-12 rounded-xl font-bold shadow-lg shadow-primary/20 transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer text-sm"
             >
               <span>Go to Dashboard</span>

@@ -14,5 +14,6 @@ export const getSubscriptionStatus = (params = {}) => {
  * Note: backend resolves company from authenticated user's UserTenant mapping
  */
 export const createCheckoutSession = () => {
-  return axiosInstance.post('/super-admin/payments/create-checkout/')
+  const origin = typeof window !== 'undefined' ? window.location.origin : undefined
+  return axiosInstance.post('/super-admin/payments/create-checkout/', { origin })
 }

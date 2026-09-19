@@ -1,4 +1,5 @@
 import stripe
+from urllib.parse import urlsplit
 from django.conf import settings
 from django.utils import timezone
 
@@ -257,6 +258,101 @@ class SuperAdminDashboardAPIView(APIView):
         )
 
 
+def _is_local_host(hostname: str) -> bool:
+    if not hostname:
+        return False
+    host = hostname.split(":")[0].strip().lower()
+    return (
+        host in ("localhost", "127.0.0.1", "0.0.0.0")
+        or host.endswith(".localhost")
+    )
+
+
+def get_tenant_payment_frontend_base(request, company) -> str:
+    """
+    Securely and dynamically resolves the frontend base URL for Stripe checkout redirects.
+
+    Security & Validation:
+    - Never blindly trusts request.data['origin'] or Origin headers.
+    - Production:
+        - Only allows origins matching the verified tenant domain: <tenant>.manhargurukkal.site.
+        - Rejects arbitrary external origins (e.g., https://attacker.com).
+        - Strips any development port (:5173) and enforces HTTPS.
+    - Local development:
+        - Allows localhost, 127.0.0.1, or <tenant>.localhost with port :5173.
+    """
+    # 1. Resolve verified tenant primary domain
+    domain = None
+    try:
+        if company:
+            domain = Domain.objects.filter(
+                tenant=company,
+                is_primary=True,
+            ).first()
+    except Exception:
+        domain = None
+
+    base_domain = getattr(settings, "BASE_DOMAIN", "manhargurukkal.site") or "manhargurukkal.site"
+    if domain and domain.domain:
+        verified_domain = domain.domain.strip().lower()
+    elif company and hasattr(company, "schema_name"):
+        verified_domain = f"{company.schema_name}.{base_domain}".strip().lower()
+    else:
+        verified_domain = base_domain.strip().lower()
+
+    verified_host = verified_domain.split(":")[0]
+    is_local = _is_local_host(verified_host) or (getattr(settings, "DEBUG", False) and _is_local_host(base_domain))
+
+    # 2. Extract candidate origin from request (body, Origin header, Referer)
+    candidate_origin = None
+    if isinstance(getattr(request, "data", None), dict) and request.data.get("origin"):
+        candidate_origin = str(request.data.get("origin")).strip()
+    elif hasattr(request, "headers") and request.headers.get("origin"):
+        candidate_origin = request.headers.get("origin").strip()
+    elif hasattr(request, "META") and request.META.get("HTTP_ORIGIN"):
+        candidate_origin = request.META.get("HTTP_ORIGIN").strip()
+    elif hasattr(request, "headers") and request.headers.get("referer"):
+        candidate_origin = request.headers.get("referer").strip()
+    elif hasattr(request, "META") and request.META.get("HTTP_REFERER"):
+        candidate_origin = request.META.get("HTTP_REFERER").strip()
+
+    candidate_host = None
+    candidate_port = None
+    candidate_scheme = None
+
+    if candidate_origin:
+        try:
+            parsed = urlsplit(candidate_origin)
+            if parsed.hostname:
+                candidate_host = parsed.hostname.strip().lower()
+                candidate_port = parsed.port
+                candidate_scheme = (parsed.scheme or "").strip().lower()
+        except Exception:
+            pass
+
+    # 3. Validation:
+    # A) Local development check:
+    # Allow localhost / 127.0.0.1 / *.localhost origins with the Vite :5173 port
+    if candidate_host and _is_local_host(candidate_host):
+        port = candidate_port or 5173
+        scheme = candidate_scheme if candidate_scheme in ("http", "https") else "http"
+        return f"{scheme}://{candidate_host}:{port}"
+
+    # B) Production check:
+    # Only allow origins matching the verified tenant domain (<tenant>.manhargurukkal.site).
+    # Reject arbitrary external origins like attacker.com.
+    # Never append :5173 or dev port in production; enforce HTTPS.
+    if candidate_host and candidate_host == verified_host:
+        return f"https://{verified_host}"
+
+    # C) Fallback when candidate origin is missing or untrusted (e.g. attacker.com):
+    # Safely generate from verified tenant domain
+    if _is_local_host(verified_host):
+        return f"http://{verified_host}:5173"
+
+    return f"https://{verified_host}"
+
+
 class CreateCheckoutSessionAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -316,13 +412,8 @@ class CreateCheckoutSessionAPIView(APIView):
             )
 
         # Create Stripe Checkout Session
-        domain = Domain.objects.filter(
-            tenant=company,
-            is_primary=True,
-        ).first()
-
-        frontend_base = f"http://{domain.domain}:5173" if domain else "http://localhost:5173"
-        success_url = f"{frontend_base}/payment/success"
+        frontend_base = get_tenant_payment_frontend_base(request, company)
+        success_url = f"{frontend_base}/payment/success?session_id={{CHECKOUT_SESSION_ID}}"
         cancel_url = f"{frontend_base}/payment/cancel"
 
         try:
@@ -427,6 +518,11 @@ class SubscriptionStatusAPIView(APIView):
                 "billing_cycle": subscription.billing_cycle if subscription else "monthly",
                 "started_at": subscription.started_at if subscription else None,
                 "expires_at": subscription.expires_at if subscription else None,
+                "tenant": {
+                    "id": company.id,
+                    "name": company.name,
+                    "schema_name": company.schema_name,
+                },
             },
             status=status.HTTP_200_OK,
         )
