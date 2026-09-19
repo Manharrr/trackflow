@@ -1,5 +1,5 @@
 import { Navigate, useLocation } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth, getTenantWorkspaceOrigin } from '../contexts/AuthContext'
 
 // Centralized permission map matching exact paths and patterns using RegExp
 const ROUTE_PERMISSIONS = {
@@ -68,6 +68,16 @@ export default function ProtectedRoute({ children }) {
 
   const path = location.pathname
   const role = user?.role || 'employee'
+
+  // Tenant Domain Boundary Enforcement: Company users must navigate on their tenant workspace domain
+  if (role !== 'super_admin') {
+    const tenantOrigin = getTenantWorkspaceOrigin(user?.tenant || user?.tenant_data || user)
+    if (tenantOrigin && window.location.origin !== tenantOrigin) {
+      const targetUrl = `${tenantOrigin}${location.pathname}${location.search}`
+      window.location.replace(targetUrl)
+      return null
+    }
+  }
 
   // Company Admin Subscription Gating
   if (role === 'company_admin') {

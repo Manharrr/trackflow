@@ -1,76 +1,33 @@
-// import {
-//   Navigate
-// } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
+import { useAuth, getTenantWorkspaceOrigin } from '../contexts/AuthContext'
 
-// import {
-//   useAuth
-// } from '../contexts/AuthContext'
+export default function RoleRedirect() {
+  const { user, isLoading, isAuthenticated } = useAuth()
 
-// export default function RoleRedirect() {
-//   const {
-//     user,
-//     isLoading
-//   } = useAuth()
+  if (isLoading) {
+    return null
+  }
 
-//   if (
-//     isLoading
-//   ) {
-//     return null
-//   }
+  if (!isAuthenticated || !user) {
+    return <Navigate to="/login" replace />
+  }
 
-//   if (
-//     !user
-//   ) {
-//     return (
-//       <Navigate
-//         to="/login"
-//       />
-//     )
-//   }
+  const role = user.role || user.user?.role || 'employee'
+  if (role === 'super_admin') {
+    return <Navigate to="/super-admin" replace />
+  }
 
-//   switch (
-//     user.role
-//   ) {
-//     case 'super_admin':
-//       return (
-//         <Navigate
-//           to="/super-admin"
-//           replace
-//         />
-//       )
+  const tenantOrigin = getTenantWorkspaceOrigin(user.tenant || user.tenant_data || user)
+  if (tenantOrigin && window.location.origin !== tenantOrigin) {
+    window.location.replace(`${tenantOrigin}/dashboard`)
+    return null
+  }
 
-//     case 'company_admin':
-//       return (
-//         <Navigate
-//           to="/dashboard"
-//           replace
-//         />
-//       )
-
-//     case 'operations_manager':
-//       return (
-//         <Navigate
-//           to="/operations"
-//           replace
-//         />
-//       )
-
-//     default:
-//       return (
-//         <Navigate
-//           to="/employee"
-//           replace
-//         />
-//       )
-//   }
-// }
-
-
-
-
-// <Route
-//   path="/"
-//   element={
-//     <RoleRedirect />
-//   }
-// />
+  if (role === 'company_admin') {
+    return <Navigate to="/dashboard" replace />
+  }
+  if (role === 'operations_manager') {
+    return <Navigate to="/operations" replace />
+  }
+  return <Navigate to="/employee" replace />
+}

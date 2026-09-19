@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth } from './contexts/AuthContext'
+import { useAuth, getTenantWorkspaceOrigin } from './contexts/AuthContext'
 
 import ProtectedRoute from './routes/ProtectedRoute'
 import DashboardLayout from './layouts/DashboardLayout'
@@ -66,7 +66,15 @@ function PublicRoute({ children }) {
         const role = user?.role || user?.user?.role
         if (role === 'super_admin') {
             return <Navigate to="/super-admin" replace />
-        } else if (role === 'company_admin') {
+        }
+
+        const tenantOrigin = getTenantWorkspaceOrigin(user?.tenant || user?.tenant_data || user)
+        if (tenantOrigin && window.location.origin !== tenantOrigin) {
+            window.location.replace(`${tenantOrigin}/dashboard`)
+            return null
+        }
+
+        if (role === 'company_admin') {
             return <Navigate to="/dashboard" replace />
         } else if (role === 'operations_manager') {
             return <Navigate to="/operations" replace />

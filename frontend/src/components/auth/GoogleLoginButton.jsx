@@ -1,7 +1,7 @@
 import { GoogleLogin } from '@react-oauth/google'
 import { useNavigate } from 'react-router-dom'
 
-import { useAuth } from '../../contexts/AuthContext'
+import { useAuth, getTenantWorkspaceOrigin } from '../../contexts/AuthContext'
 
 export default function GoogleLoginButton() {
 
@@ -43,37 +43,41 @@ export default function GoogleLoginButton() {
                 navigate('/mfa', {
                     state: {
                         email: data.email,
+                        tenant: data.tenant,
                     },
                 })
                 return
             }
 
-            // const role = data.user.role
-            // if (role === 'super_admin') {
-            //     navigate('/super-admin')
-            // } else if (role === 'company_admin') {
-            //     navigate('/dashboard')
-            // } else if (role === 'operations_manager') {
-            //     navigate('/operations')
-            // } else {
-            //     navigate('/employee')
-            // }
-
             if (data.redirectUrl) {
-                window.location.href = data.redirectUrl;
+                if (data.redirectUrl.startsWith("http://") || data.redirectUrl.startsWith("https://")) {
+                    window.location.replace(data.redirectUrl);
+                } else {
+                    navigate(data.redirectUrl, { replace: true });
+                }
+                return;
+            }
+
+            const targetOrigin = getTenantWorkspaceOrigin(data.tenant || data.user?.tenant);
+            if (targetOrigin && window.location.origin !== targetOrigin) {
+                const url = new URL(`${targetOrigin}/dashboard`);
+                if (data.refresh) {
+                    url.searchParams.set("auth_transfer", data.refresh);
+                }
+                window.location.replace(url.toString());
                 return;
             }
 
             const role = data.user?.role || data.role;
 
             if (role === "super_admin") {
-                navigate("/super-admin")
+                navigate("/super-admin", { replace: true })
             } else if (role === "company_admin") {
-                navigate("/dashboard")
+                navigate("/dashboard", { replace: true })
             } else if (role === "operations_manager") {
-                navigate("/operations")
+                navigate("/operations", { replace: true })
             } else {
-                navigate("/employee")
+                navigate("/employee", { replace: true })
             }
 
         }

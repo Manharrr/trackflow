@@ -36,7 +36,11 @@ export default function MFAPage() {
             const me = await completeMfaLogin(token, workspaceUrl, refreshToken, tenant)
 
             if (me?.redirectUrl) {
-                window.location.href = me.redirectUrl
+                if (me.redirectUrl.startsWith("http://") || me.redirectUrl.startsWith("https://")) {
+                    window.location.replace(me.redirectUrl)
+                } else {
+                    navigate(me.redirectUrl, { replace: true })
+                }
                 return
             }
 
@@ -45,22 +49,26 @@ export default function MFAPage() {
             const role = me?.role || me?.user?.role
 
             if (role === "super_admin") {
-                navigate("/super-admin")
+                navigate("/super-admin", { replace: true })
                 return
             }
 
-            const targetOrigin = getTenantWorkspaceOrigin(tenant || workspaceUrl)
-            if (targetOrigin) {
-                window.location.href = `${targetOrigin}/dashboard`
+            const targetOrigin = getTenantWorkspaceOrigin(tenant || workspaceUrl || me?.tenant || me?.user?.tenant)
+            if (targetOrigin && window.location.origin !== targetOrigin) {
+                const url = new URL(`${targetOrigin}/dashboard`)
+                if (refreshToken) {
+                    url.searchParams.set("auth_transfer", refreshToken)
+                }
+                window.location.replace(url.toString())
                 return
             }
 
             if (role === "company_admin") {
-                navigate("/dashboard")
+                navigate("/dashboard", { replace: true })
             } else if (role === "operations_manager") {
-                navigate("/operations")
+                navigate("/operations", { replace: true })
             } else {
-                navigate("/employee")
+                navigate("/employee", { replace: true })
             }
         } catch (err) {
             const errMsg = err.response?.data?.error || err.response?.data?.detail || 'Invalid MFA code. Please verify your Google Authenticator app code.'

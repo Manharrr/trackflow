@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth, getTenantWorkspaceOrigin } from "../contexts/AuthContext";
 import GoogleLoginButton from "../components/auth/GoogleLoginButton";
 import toast from "react-hot-toast";
 
@@ -115,6 +115,7 @@ export default function LoginPage() {
                 state: {
                     email: data.email,
                     workspace_code: workspaceCode,
+                    tenant: data.tenant,
                 },
             });
             return;
@@ -123,14 +124,25 @@ export default function LoginPage() {
         toast.success("Welcome back!");
 
         if (data.redirectUrl) {
-            window.location.href = data.redirectUrl;
+            if (data.redirectUrl.startsWith("http://") || data.redirectUrl.startsWith("https://")) {
+                window.location.replace(data.redirectUrl);
+            } else {
+                navigate(data.redirectUrl, { replace: true });
+            }
+            return;
+        }
+
+        const targetOrigin = getTenantWorkspaceOrigin(data.tenant || data.user?.tenant);
+        if (targetOrigin && window.location.origin !== targetOrigin) {
+            const destUrl = `${targetOrigin}/dashboard`;
+            window.location.replace(destUrl);
             return;
         }
 
         const role = data.user?.role || data.role;
 
         if (role === "super_admin") {
-            navigate("/super-admin");
+            navigate("/super-admin", { replace: true });
         } else if (role === "company_admin") {
             if (data.subscription && data.subscription.subscription_status !== "active") {
                 navigate("/payment", { replace: true });
@@ -138,9 +150,9 @@ export default function LoginPage() {
                 navigate("/dashboard", { replace: true });
             }
         } else if (role === "operations_manager") {
-            navigate("/operations");
+            navigate("/operations", { replace: true });
         } else {
-            navigate("/employee");
+            navigate("/employee", { replace: true });
         }
 
         // const role =

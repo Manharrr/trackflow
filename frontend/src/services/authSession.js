@@ -127,3 +127,121 @@ export const createTokenRefresher = ({ axiosClient, onLogout = () => {} }) => {
 
   return { refresh };
 };
+
+/**
+ * Resolves the canonical tenant workspace origin.
+ * In local environment: http://<schema>.localhost:5173
+ * In production: https://<domain> or https://<schema>.manhargurukkal.site (NEVER dev port)
+ */
+export const getTenantWorkspaceOrigin = (tenantOrUrl, windowObj = (typeof window !== 'undefined' ? window : null)) => {
+  if (!tenantOrUrl) return null;
+
+  const currentHostname = windowObj?.location?.hostname || '';
+  const isLocal =
+    currentHostname === 'localhost' ||
+    currentHostname.endsWith('.localhost') ||
+    currentHostname === '127.0.0.1';
+
+  let schemaName = null;
+  let rawUrl = null;
+
+  if (typeof tenantOrUrl === 'string') {
+    if (tenantOrUrl.startsWith('http://') || tenantOrUrl.startsWith('https://')) {
+      rawUrl = tenantOrUrl;
+    } else {
+      schemaName = tenantOrUrl.trim().toLowerCase();
+    }
+  } else if (typeof tenantOrUrl === 'object') {
+    schemaName = (tenantOrUrl.schema_name || tenantOrUrl.tenant?.schema_name || '').trim().toLowerCase() || null;
+    rawUrl = tenantOrUrl.workspace_url || tenantOrUrl.tenant?.workspace_url || null;
+  }
+
+  if (isLocal) {
+    const port = windowObj?.location?.port ? `:${windowObj.location.port}` : ':5173';
+    const protocol = windowObj?.location?.protocol || 'http:';
+    if (rawUrl) {
+      try {
+        const parsed = new URL(rawUrl);
+        return `${protocol}//${parsed.hostname}${port}`;
+      } catch {
+        // fallback
+      }
+    }
+    const host = schemaName ? `${schemaName}.localhost` : currentHostname;
+    return `${protocol}//${host}${port}`;
+  }
+
+  // Production: Always HTTPS, NEVER append :5173 or dev ports
+  if (rawUrl) {
+    try {
+      const parsed = new URL(rawUrl);
+      let hostname = parsed.hostname;
+      if ((hostname.endsWith('.localhost') || hostname === '127.0.0.1' || hostname === 'localhost') && schemaName) {
+        const baseDomain = currentHostname.includes('manhargurukkal.site')
+          ? 'manhargurukkal.site'
+          : currentHostname.replace(/^[a-z0-9-]+\./, '');
+        hostname = `${schemaName}.${baseDomain}`;
+      }
+      return `https://${hostname}`;
+    } catch {
+      // fallback
+    }
+  }
+
+  if (schemaName) {
+    const baseDomain = currentHostname.includes('manhargurukkal.site')
+      ? 'manhargurukkal.site'
+      : currentHostname.replace(/^[a-z0-9-]+\./, '');
+    return `https://${schemaName}.${baseDomain}`;
+  }
+
+  return null;
+};
+
+/**
+ * Builds dynamic redirect URL to tenant workspace if on a different origin.
+ * Returns absolute URL string with auth_transfer if redirection is required, or null if already on target origin.
+ */
+export const buildTenantRedirectUrl = ({
+  tenant,
+  currentOrigin = (typeof window !== 'undefined' ? window.location.origin : ''),
+  targetPath = '/dashboard',
+  refreshToken = null,
+  windowObj = (typeof window !== 'undefined' ? window : null),
+}) => {
+  const targetOrigin = getTenantWorkspaceOrigin(tenant, windowObj);
+  if (!targetOrigin) return null;
+
+  const normalizedCurrent = (currentOrigin || '').replace(/\/+$/, '').toLowerCase();
+  const normalizedTarget = targetOrigin.replace(/\/+$/, '').toLowerCase();
+
+  if (normalizedCurrent !== normalizedTarget) {
+    const cleanPath = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
+    const url = new URL(`${normalizedTarget}${cleanPath}`);
+    if (refreshToken) {
+      url.searchParams.set('auth_transfer', refreshToken);
+    }
+    return url.toString();
+  }
+
+  return null;
+};
+
+/**
+ * Cleans auth_transfer and refresh_token from query params using history.replaceState,
+ * ensuring the browser remains on the current tenant origin.
+ */
+export const cleanAuthTransferFromUrl = (windowObj = (typeof window !== 'undefined' ? window : null)) => {
+  if (!windowObj?.location?.search || !windowObj?.history?.replaceState) return;
+
+  const urlParams = new URLSearchParams(windowObj.location.search);
+  const hasTransfer = urlParams.has('auth_transfer') || urlParams.has('refresh_token');
+
+  if (hasTransfer) {
+    urlParams.delete('auth_transfer');
+    urlParams.delete('refresh_token');
+    const newSearch = urlParams.toString();
+    const newPath = windowObj.location.pathname + (newSearch ? `?${newSearch}` : '');
+    windowObj.history.replaceState({}, '', newPath);
+  }
+};

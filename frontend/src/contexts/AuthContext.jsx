@@ -9,80 +9,14 @@ import {
   createTokenRefresher,
   setLoggingOut,
   isLoggingOut,
+  getTenantWorkspaceOrigin,
+  buildTenantRedirectUrl,
+  cleanAuthTransferFromUrl,
 } from '../services/authSession'
 
+export { getTenantWorkspaceOrigin }
+
 const AuthContext = createContext()
-
-const initialState = {
-  user: null,
-  isAuthenticated: false,
-  isLoading: true,
-}
-
-function authReducer(state, action) {
-  switch (action.type) {
-    case 'LOGIN_SUCCESS':
-      return { ...state, user: action.payload, isAuthenticated: true, isLoading: false }
-    case 'LOGOUT':
-      return { ...state, user: null, isAuthenticated: false, isLoading: false }
-    case 'SET_LOADING':
-      return { ...state, isLoading: action.payload }
-    default:
-      return state
-  }
-}
-
-export const getTenantWorkspaceOrigin = (tenantOrUrl) => {
-  if (!tenantOrUrl) return null
-
-  const currentHostname = window.location.hostname
-  const isLocal =
-    currentHostname === 'localhost' ||
-    currentHostname.endsWith('.localhost') ||
-    currentHostname === '127.0.0.1'
-
-  const schemaName = typeof tenantOrUrl === 'object' ? tenantOrUrl.schema_name : null
-  const rawUrl = typeof tenantOrUrl === 'string' ? tenantOrUrl : tenantOrUrl.workspace_url
-
-  if (isLocal) {
-    const port = window.location.port ? `:${window.location.port}` : ':5173'
-    const protocol = window.location.protocol || 'http:'
-    if (rawUrl) {
-      try {
-        const parsed = new URL(rawUrl)
-        return `${protocol}//${parsed.hostname}${port}`
-      } catch {
-        // fallback
-      }
-    }
-    const host = schemaName ? `${schemaName}.localhost` : currentHostname
-    return `${protocol}//${host}${port}`
-  }
-
-  // Production: Always HTTPS, NEVER append :5173 or dev ports
-  if (rawUrl) {
-    try {
-      const parsed = new URL(rawUrl)
-      let hostname = parsed.hostname
-      // If backend mistakenly sent a .localhost domain or local IP in production, map to production domain
-      if ((hostname.endsWith('.localhost') || hostname === '127.0.0.1' || hostname === 'localhost') && schemaName) {
-        hostname = `${schemaName}.manhargurukkal.site`
-      }
-      return `https://${hostname}`
-    } catch {
-      // fallback
-    }
-  }
-
-  if (schemaName) {
-    const baseDomain = currentHostname.includes('manhargurukkal.site')
-      ? 'manhargurukkal.site'
-      : currentHostname.replace(/^[a-z0-9-]+\./, '')
-    return `https://${schemaName}.${baseDomain}`
-  }
-
-  return window.location.origin
-}
 
 export function AuthProvider({ children }) {
   const [state, dispatch] = useReducer(authReducer, initialState)
@@ -162,13 +96,7 @@ export function AuthProvider({ children }) {
       try {
         await refreshAccessToken(activeRefreshToken)
 
-        if (urlRefreshToken) {
-          urlParams.delete('auth_transfer')
-          urlParams.delete('refresh_token')
-          const newSearch = urlParams.toString()
-          const newPath = window.location.pathname + (newSearch ? `?${newSearch}` : '')
-          window.history.replaceState({}, '', newPath)
-        }
+        cleanAuthTransferFromUrl(window)
 
         const meRes = await axiosInstance.get('/auth/me/')
         const role = meRes.data.role || meRes.data.user?.role
@@ -181,6 +109,18 @@ export function AuthProvider({ children }) {
           }
         }
         dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
+
+        // Check if an authenticated company user is on root domain on a protected path
+        if (role !== 'super_admin') {
+          const tenantOrigin = getTenantWorkspaceOrigin(meRes.data.tenant || meRes.data)
+          if (tenantOrigin && window.location.origin !== tenantOrigin) {
+            const path = window.location.pathname
+            if (path.startsWith('/dashboard') || path.startsWith('/operations') || path.startsWith('/employee') || path.startsWith('/payment')) {
+              window.location.replace(`${tenantOrigin}${path}${window.location.search}`)
+              return
+            }
+          }
+        }
       } catch {
         clearStoredTokens(axiosInstance)
         dispatch({ type: 'LOGOUT' })
@@ -256,16 +196,16 @@ export function AuthProvider({ children }) {
       setStoredRefreshToken(res.data.refresh)
     }
 
-    const currentOrigin = window.location.origin
-    const targetOrigin = getTenantWorkspaceOrigin(res.data.tenant)
+    const tenantRedirect = buildTenantRedirectUrl({
+      tenant: res.data.tenant || res.data,
+      currentOrigin: window.location.origin,
+      targetPath: '/dashboard',
+      refreshToken: res.data.refresh,
+    })
 
-    if (targetOrigin && currentOrigin !== targetOrigin) {
+    if (tenantRedirect) {
       isInitializingRef.current = true
-      const url = new URL(`${targetOrigin}/dashboard`)
-      if (res.data.refresh) {
-        url.searchParams.set('auth_transfer', res.data.refresh)
-      }
-      return { redirectUrl: url.toString() }
+      return { redirectUrl: tenantRedirect, tenant: res.data.tenant }
     }
 
     const meRes = await axiosInstance.get('/auth/me/')
@@ -298,8 +238,7 @@ export function AuthProvider({ children }) {
       targetPath = '/employee'
     }
 
-    const destOrigin = targetOrigin || currentOrigin
-    return { redirectUrl: `${destOrigin}${targetPath}`, subscription: subData, role }
+    return { redirectUrl: targetPath, subscription: subData, role, user: meRes.data }
   }
 
   const googleLogin = async (token, workspace_code = null) => {
@@ -321,16 +260,16 @@ export function AuthProvider({ children }) {
       setStoredRefreshToken(res.data.refresh)
     }
 
-    const currentOrigin = window.location.origin
-    const targetOrigin = getTenantWorkspaceOrigin(res.data.tenant)
+    const tenantRedirect = buildTenantRedirectUrl({
+      tenant: res.data.tenant || res.data,
+      currentOrigin: window.location.origin,
+      targetPath: '/dashboard',
+      refreshToken: res.data.refresh,
+    })
 
-    if (targetOrigin && currentOrigin !== targetOrigin) {
+    if (tenantRedirect) {
       isInitializingRef.current = true
-      const url = new URL(`${targetOrigin}/dashboard`)
-      if (res.data.refresh) {
-        url.searchParams.set('auth_transfer', res.data.refresh)
-      }
-      return { redirectUrl: url.toString() }
+      return { redirectUrl: tenantRedirect, tenant: res.data.tenant }
     }
 
     const meRes = await axiosInstance.get('/auth/me/')
@@ -363,8 +302,7 @@ export function AuthProvider({ children }) {
       targetPath = '/employee'
     }
 
-    const destOrigin = targetOrigin || currentOrigin
-    return { redirectUrl: `${destOrigin}${targetPath}`, subscription: subData, role }
+    return { redirectUrl: targetPath, subscription: subData, role, user: meRes.data }
   }
 
   const register = async (email, username, password, confirm_password) => {
@@ -389,16 +327,16 @@ export function AuthProvider({ children }) {
       setStoredRefreshToken(refreshToken)
     }
 
-    const currentOrigin = window.location.origin
-    const targetOrigin = getTenantWorkspaceOrigin(tenant || workspaceUrl)
+    const tenantRedirect = buildTenantRedirectUrl({
+      tenant: tenant || workspaceUrl,
+      currentOrigin: window.location.origin,
+      targetPath: '/dashboard',
+      refreshToken: refreshToken,
+    })
 
-    if (targetOrigin && currentOrigin !== targetOrigin) {
+    if (tenantRedirect) {
       isInitializingRef.current = true
-      const url = new URL(`${targetOrigin}/dashboard`)
-      if (refreshToken) {
-        url.searchParams.set('auth_transfer', refreshToken)
-      }
-      return { redirectUrl: url.toString() }
+      return { redirectUrl: tenantRedirect, tenant: tenant }
     }
 
     const meRes = await axiosInstance.get('/auth/me/')
@@ -431,8 +369,7 @@ export function AuthProvider({ children }) {
       targetPath = '/employee'
     }
 
-    const destOrigin = targetOrigin || currentOrigin
-    return { redirectUrl: `${destOrigin}${targetPath}`, user: meRes.data, subscription: subData }
+    return { redirectUrl: targetPath, user: meRes.data, subscription: subData }
   }
 
   const logout = async () => {
