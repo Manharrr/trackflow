@@ -148,3 +148,210 @@ class StripePaymentRedirectSecurityTests(SimpleTestCase):
         base_body = get_tenant_payment_frontend_base(req_body, self.company)
         self.assertNotIn("attacker.com", base_body)
         self.assertEqual(base_body, "https://tenant.manhargurukkal.site")
+
+
+from django.test import RequestFactory
+from django_tenants.test.cases import TenantTestCase
+from django_tenants.postgresql_backend.base import FakeTenant
+from django_tenants.utils import schema_context
+from apps.tenants.middleware import TrackFlowTenantMiddleware
+from apps.tenants.models import Client, Domain, UserTenant
+from apps.accounts.models import User
+from apps.authentication.views import PhoneLoginAPIView
+
+
+class TrackFlowTenantMiddlewareTests(TenantTestCase):
+    @classmethod
+    def setup_tenant(cls, tenant):
+        tenant.name = "LogesticGo"
+        tenant.schema_name = "logesticgo"
+        tenant.email = "info@logesticgo.test"
+        tenant.phone = "9876543210"
+        tenant.verified = True
+        tenant.status = "approved"
+
+    @classmethod
+    def setUpClass(cls):
+        from django.db import connection
+        connection.set_schema_to_public()
+        Client.objects.filter(schema_name="logesticgo").delete()
+        super().setUpClass()
+        cls.tenant.create_schema(check_if_exists=True)
+        from django.core.management import call_command
+        call_command(
+            'migrate_schemas',
+            schema_name=cls.tenant.schema_name,
+            interactive=False,
+            verbosity=0
+        )
+        # Create domain for logesticgo.manhargurukkal.site
+        Domain.objects.get_or_create(
+            domain="logesticgo.manhargurukkal.site",
+            tenant=cls.tenant,
+            defaults={"is_primary": True},
+        )
+        # Create domain for logesticgo.localhost (local dev)
+        Domain.objects.get_or_create(
+            domain="logesticgo.localhost",
+            tenant=cls.tenant,
+            defaults={"is_primary": False},
+        )
+        # Create public tenant if not already present in test DB
+        public_tenant, _ = Client.objects.get_or_create(
+            schema_name="public",
+            defaults={
+                "name": "TrackFlow AI Public",
+                "email": "admin@trackflow.ai",
+                "phone": "9999999999",
+                "verified": True,
+                "status": "approved",
+            },
+        )
+        # Create domain for localhost (local dev public)
+        Domain.objects.get_or_create(
+            domain="localhost",
+            tenant=public_tenant,
+            defaults={"is_primary": True},
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        from django.db import connection
+        connection.set_schema_to_public()
+        try:
+            Domain.objects.filter(domain__in=[
+                "logesticgo.manhargurukkal.site",
+                "logesticgo.localhost",
+                "localhost",
+            ]).delete()
+        except Exception:
+            pass
+        try:
+            cls.tenant.delete(force_drop=True)
+        except Exception:
+            pass
+        cls.remove_allowed_test_domain()
+
+    def setUp(self):
+        super().setUp()
+        self.factory = RequestFactory()
+        self.middleware = TrackFlowTenantMiddleware(lambda req: None)
+        self.public_tenant, _ = Client.objects.get_or_create(
+            schema_name="public",
+            defaults={
+                "name": "TrackFlow AI Public",
+                "email": "admin@trackflow.ai",
+                "phone": "9999999999",
+                "verified": True,
+                "status": "approved",
+            },
+        )
+
+    def test_1_api_manhargurukkal_site_gets_real_public_client(self):
+        """1. api.manhargurukkal.site gets the real public Client."""
+        request = self.factory.get("/api/auth/login/", HTTP_HOST="api.manhargurukkal.site")
+        self.middleware.process_request(request)
+
+        self.assertIsNotNone(request.tenant)
+        self.assertIsInstance(request.tenant, Client)
+        self.assertEqual(request.tenant.schema_name, "public")
+        self.assertEqual(request.tenant.id, self.public_tenant.id)
+
+    def test_2_manhargurukkal_site_gets_real_public_client(self):
+        """2. manhargurukkal.site gets the real public Client."""
+        request = self.factory.get("/", HTTP_HOST="manhargurukkal.site")
+        self.middleware.process_request(request)
+
+        self.assertIsNotNone(request.tenant)
+        self.assertIsInstance(request.tenant, Client)
+        self.assertEqual(request.tenant.schema_name, "public")
+        self.assertEqual(request.tenant.id, self.public_tenant.id)
+
+    def test_3_request_tenant_is_never_faketenant_for_public_hosts(self):
+        """3. request.tenant is never a FakeTenant for public hosts and ForeignKey queries succeed."""
+        for host in ["api.manhargurukkal.site", "manhargurukkal.site"]:
+            request = self.factory.get("/api/auth/login/", HTTP_HOST=host)
+            self.middleware.process_request(request)
+
+            self.assertNotIsInstance(request.tenant, FakeTenant)
+            self.assertIsInstance(request.tenant, Client)
+            self.assertIsNotNone(getattr(request.tenant, "id", None))
+            # Verify ForeignKey lookup with request.tenant does NOT raise TypeError
+            try:
+                UserTenant.objects.filter(tenant=request.tenant).exists()
+            except TypeError as exc:
+                self.fail(f"ForeignKey lookup with request.tenant failed with TypeError: {exc}")
+
+    def test_4_logesticgo_subdomain_still_resolves_to_logesticgo_client(self):
+        """4. logesticgo.manhargurukkal.site still resolves to the logesticgo Client."""
+        request = self.factory.get("/api/orders/", HTTP_HOST="logesticgo.manhargurukkal.site")
+        self.middleware.process_request(request)
+
+        self.assertIsNotNone(request.tenant)
+        self.assertIsInstance(request.tenant, Client)
+        self.assertEqual(request.tenant.schema_name, "logesticgo")
+        self.assertEqual(request.tenant.id, self.tenant.id)
+
+    def test_5_local_development_tenant_resolution(self):
+        """5. Local development tenant resolution still works for localhost and *.localhost."""
+        with self.settings(ALLOWED_HOSTS=["*", "localhost", ".localhost", "127.0.0.1", ".manhargurukkal.site"]):
+            # localhost -> public tenant
+            req_local = self.factory.get("/", HTTP_HOST="localhost")
+            self.middleware.process_request(req_local)
+            self.assertEqual(req_local.tenant.schema_name, "public")
+            self.assertIsInstance(req_local.tenant, Client)
+
+            # logesticgo.localhost -> logesticgo tenant
+            req_tenant_local = self.factory.get("/", HTTP_HOST="logesticgo.localhost")
+            self.middleware.process_request(req_tenant_local)
+            self.assertEqual(req_tenant_local.tenant.schema_name, "logesticgo")
+            self.assertIsInstance(req_tenant_local.tenant, Client)
+
+    def test_6_public_host_login_authenticates_without_faketenant_error(self):
+        """6. Public-host login can authenticate without the FakeTenant ForeignKey error."""
+        user = User.objects.create_user(
+            username="tenantadmin@test.com",
+            email="tenantadmin@test.com",
+            phone="+919876543210",
+            password="securepassword123",
+        )
+        UserTenant.objects.create(
+            user=user,
+            tenant=self.tenant,
+            is_active=True,
+        )
+        from apps.employees.models.employee import Employee, Role
+        with schema_context(self.tenant.schema_name):
+            Employee.objects.create(
+                tenant=self.tenant,
+                user=user,
+                role=Role.COMPANY_ADMIN,
+                full_name="Tenant Admin",
+                email=user.email,
+                phone=user.phone,
+                is_active=True,
+                is_blocked=False,
+            )
+
+        # Simulate login request on api.manhargurukkal.site
+        request = self.factory.post(
+            "/api/auth/login/",
+            data={"phone": "+919876543210", "password": "securepassword123"},
+            content_type="application/json",
+            HTTP_HOST="api.manhargurukkal.site",
+        )
+        # Run through middleware
+        self.middleware.process_request(request)
+
+        # Ensure request.tenant is real Client
+        self.assertIsInstance(request.tenant, Client)
+        self.assertNotIsInstance(request.tenant, FakeTenant)
+
+        # Execute PhoneLoginAPIView
+        view = PhoneLoginAPIView.as_view()
+        response = view(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("access", response.data)
+        self.assertIn("refresh", response.data)
+        self.assertEqual(response.data["tenant"]["schema_name"], "logesticgo")
+
