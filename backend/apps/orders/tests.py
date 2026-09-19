@@ -13,6 +13,7 @@ from apps.orders.models.audit import OrderAuditLog
 from apps.orders.services.order_service import OrderService
 from apps.orders.services.assignment_service import AssignmentService
 from apps.orders.services.status_service import StatusService
+from apps.orders.services.dashboard_service import DashboardService
 
 User = get_user_model()
 
@@ -33,8 +34,11 @@ class OrdersTestCase(TenantTestCase):
         from django.db import connection
         with connection.cursor() as cursor:
             try:
+                cursor.execute("DELETE FROM tenants_usertenant WHERE tenant_id IN (SELECT id FROM tenants_client WHERE schema_name IN ('test', 'otherco'))")
                 cursor.execute("DELETE FROM tenants_domain WHERE domain='test.test.com'")
-                cursor.execute("DELETE FROM tenants_client WHERE schema_name='test'")
+                cursor.execute("DELETE FROM tenants_client WHERE schema_name IN ('test', 'otherco')")
+                cursor.execute("DROP SCHEMA IF EXISTS test CASCADE")
+                cursor.execute("DROP SCHEMA IF EXISTS otherco CASCADE")
             except Exception:
                 pass
         
@@ -56,15 +60,19 @@ class OrdersTestCase(TenantTestCase):
         connection.set_schema_to_public()
         with connection.cursor() as cursor:
             try:
+                cursor.execute("DELETE FROM tenants_usertenant WHERE tenant_id IN (SELECT id FROM tenants_client WHERE schema_name IN ('test', 'otherco'))")
                 cursor.execute("DELETE FROM tenants_domain WHERE domain='test.test.com'")
-                cursor.execute("DELETE FROM tenants_client WHERE schema_name='test'")
-                cursor.execute("DELETE FROM tenants_client WHERE schema_name='otherco'")
+                cursor.execute("DELETE FROM tenants_client WHERE schema_name IN ('test', 'otherco')")
+                cursor.execute("DROP SCHEMA IF EXISTS test CASCADE")
+                cursor.execute("DROP SCHEMA IF EXISTS otherco CASCADE")
             except Exception:
                 pass
         # Skip super().tearDownClass() to prevent cascade checks in public schema context
 
     def setUp(self):
         super().setUp()
+        from django.db import connection
+        connection.set_tenant(self.tenant)
         
         # 1. Create OM / Admin User
         self.admin_user = User.objects.create_user(
@@ -368,4 +376,87 @@ class OrdersTestCase(TenantTestCase):
         client.force_authenticate(user=self.driver_user)
         res_forbidden = client.get(reverse("operations-dashboard"), HTTP_HOST=host)
         self.assertEqual(res_forbidden.status_code, 403)
+
+    def test_company_admin_dashboard_via_public_host(self):
+        """
+        Regression Test: Company Admin dashboard requested through public API host
+        (api.manhargurukkal.site where request.tenant is None) automatically resolves
+        tenant and switches to tenant schema without UndefinedTable error.
+        """
+        # Create Company Admin User & Employee
+        ca_user = User.objects.create_user(
+            username="ca@trackflow.test",
+            email="ca@trackflow.test",
+            phone="9876543219",
+        )
+        ca_user.is_verified = True
+        ca_user.save()
+
+        UserTenant.objects.create(
+            user=ca_user,
+            tenant=self.tenant,
+            is_active=True,
+        )
+
+        Employee.objects.create(
+            tenant=self.tenant,
+            user=ca_user,
+            role=Role.COMPANY_ADMIN,
+            full_name="Chief Admin",
+            email="ca@trackflow.test",
+            phone="9876543219",
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=ca_user)
+
+        # Send request to public API host
+        res = client.get(reverse("order-dashboard"), HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["role"], "company_admin")
+        self.assertIn("total_orders", res.data)
+        self.assertIn("total_employees", res.data)
+        self.assertGreaterEqual(res.data["total_employees"], 1)
+
+    def test_dashboard_service_switches_from_public_to_tenant_schema(self):
+        """
+        Regression Test: DashboardService automatically enters tenant schema_context
+        even when database connection is currently pointing to 'public'.
+        """
+        from django.db import connection
+        try:
+            connection.set_schema_to_public()
+            self.assertEqual(connection.schema_name, "public")
+
+            metrics = DashboardService.get_dashboard_metrics(self.admin_user, self.tenant)
+            self.assertEqual(metrics["role"], "operations_manager")
+            self.assertIn("today_orders", metrics)
+
+            # Ensure connection schema restored to public inside block
+            self.assertEqual(connection.schema_name, "public")
+        finally:
+            connection.set_tenant(self.tenant)
+
+    def test_cross_tenant_isolation_dashboard(self):
+        """
+        Regression Test: User belonging to Tenant A cannot access Tenant B dashboard.
+        """
+        unauthorized_user = User.objects.create_user(
+            username="intruder@other.test",
+            email="intruder@other.test",
+            phone="1112223339",
+        )
+        unauthorized_user.is_verified = True
+        unauthorized_user.save()
+
+        # Direct service call returns empty dict for unauthorized tenant
+        metrics = DashboardService.get_dashboard_metrics(unauthorized_user, self.tenant)
+        self.assertEqual(metrics, {})
+
+        # API call returns 400 (no tenant resolved) or 403 (unauthorized)
+        client = APIClient()
+        client.force_authenticate(user=unauthorized_user)
+        res = client.get(reverse("order-dashboard"), HTTP_HOST="api.manhargurukkal.site")
+        self.assertIn(res.status_code, [400, 403])
+
 

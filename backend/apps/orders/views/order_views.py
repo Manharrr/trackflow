@@ -403,6 +403,21 @@ class OrderDashboardAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        tenant = request.tenant
+        from apps.tenants.utils import resolve_request_tenant
+        tenant = resolve_request_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "Tenant context could not be resolved."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not request.user.is_superuser:
+            from apps.tenants.models import UserTenant
+            if not UserTenant.objects.filter(user=request.user, tenant=tenant, is_active=True).exists():
+                return Response(
+                    {"detail": "You do not have access to this workspace."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
         metrics = DashboardService.get_dashboard_metrics(request.user, tenant)
         return Response(metrics)

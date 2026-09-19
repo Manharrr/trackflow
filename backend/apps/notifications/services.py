@@ -16,15 +16,17 @@ class NotificationService:
         message,
     ):
         """
-        Creates and saves a Notification record in the database.
+        Creates and saves a Notification record in the database within tenant schema context.
         """
-        return Notification.objects.create(
-            tenant=tenant,
-            recipient=recipient,
-            notification_type=notification_type,
-            title=title,
-            message=message,
-        )
+        from django_tenants.utils import schema_context
+        with schema_context(tenant.schema_name):
+            return Notification.objects.create(
+                tenant=tenant,
+                recipient=recipient,
+                notification_type=notification_type,
+                title=title,
+                message=message,
+            )
 
     @staticmethod
     def push_realtime(notification, order_id=None):
