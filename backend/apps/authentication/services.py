@@ -180,11 +180,71 @@ def verify_mfa(user, code):
 
 # USER OPERATIONS
 
+def normalize_phone_number(phone):
+    """
+    Normalizes a phone number to standard E.164 format.
+    For Indian numbers: +91XXXXXXXXXX (canonical format).
+    Strips whitespace, dashes, and redundant prefixes.
+    """
+    if not phone:
+        return ""
+    clean = str(phone).strip().replace(" ", "").replace("-", "")
+    if clean.startswith("+91"):
+        digits = clean[3:]
+        if len(digits) == 10 and digits.isdigit():
+            return f"+91{digits}"
+        return clean
+    elif clean.startswith("91") and len(clean) == 12 and clean.isdigit():
+        return f"+{clean}"
+    elif clean.startswith("0") and len(clean) == 11 and clean.isdigit():
+        return f"+91{clean[1:]}"
+    elif len(clean) == 10 and clean.isdigit():
+        return f"+91{clean}"
+    return clean
+
+
+def build_workspace_url(tenant, domain=None):
+    """
+    Builds the workspace URL for a tenant.
+    In local development (e.g. *.localhost, localhost, 127.0.0.1, or DEBUG=True with local base domain):
+        Uses http://<domain>:5173
+    In production:
+        Uses https://<domain> (no development port).
+    """
+    if not tenant:
+        return None
+
+    if not domain:
+        from apps.tenants.models import Domain
+        domain = Domain.objects.filter(tenant=tenant, is_primary=True).first()
+
+    base_domain = getattr(settings, "BASE_DOMAIN", "manhargurukkal.site") or "manhargurukkal.site"
+    if domain and domain.domain:
+        host = domain.domain.strip().lower()
+    elif hasattr(tenant, "schema_name"):
+        host = f"{tenant.schema_name}.{base_domain}".strip().lower()
+    else:
+        return None
+
+    host_name = host.split(":")[0]
+    is_local = (
+        host_name in ("localhost", "127.0.0.1")
+        or host_name.endswith(".localhost")
+        or (getattr(settings, "DEBUG", False) and (base_domain in ("localhost", "127.0.0.1") or base_domain.endswith(".localhost")))
+    )
+
+    if is_local:
+        return f"http://{host_name}:5173"
+    return f"https://{host_name}"
+
+
 def create_user(*, email, phone, password, **kwargs):
     """
-    Creates a User record. If the password parameter is already hashed,
-    it instantiates User directly to bypass duplicate hashing.
+    Creates a User record with a normalized phone number.
+    If the password parameter is already hashed, it instantiates
+    User directly to bypass duplicate hashing.
     """
+    phone = normalize_phone_number(phone)
     if password.startswith(("pbkdf2_sha256$", "bcrypt$", "argon2$")):
         user = User(
             username=email,
@@ -209,13 +269,22 @@ def find_user_by_phone(phone):
     """
     Finds a user by phone number, accommodating multiple formats:
     raw 10-digits, +91 prefix, spaces, dashes, or 91 country code.
+    Resilient at the database query level using Replace() so that
+    unnormalized numbers stored with whitespace or dashes are matched.
     """
     if not phone:
         return None
-    from django.db.models import Q
+    from django.db.models import Q, Value, F
+    from django.db.models.functions import Replace
 
-    clean_phone = str(phone).strip().replace(" ", "").replace("-", "")
-    variants = {clean_phone}
+    raw_phone = str(phone).strip()
+    clean_phone = raw_phone.replace(" ", "").replace("-", "")
+    variants = {raw_phone, clean_phone}
+
+    normalized = normalize_phone_number(clean_phone)
+    if normalized:
+        variants.add(normalized)
+
     if clean_phone.startswith("+91"):
         variants.add(clean_phone[3:])
         variants.add(clean_phone[1:])  # 91...
@@ -232,4 +301,26 @@ def find_user_by_phone(phone):
         variants.add(f"+91{last10}")
         variants.add(f"91{last10}")
 
-    return User.objects.filter(Q(phone__in=list(variants))).first()
+    variant_list = [v for v in variants if v]
+
+    # Fast-path: direct index match on phone field
+    user = User.objects.filter(phone__in=variant_list).first()
+    if user:
+        return user
+
+    # Whitespace/format resilient lookup at the DATABASE level using Replace()
+    user = (
+        User.objects.annotate(
+            clean_db_phone=Replace(
+                Replace(F("phone"), Value(" "), Value("")),
+                Value("-"),
+                Value(""),
+            )
+        )
+        .filter(
+            Q(clean_db_phone__in=variant_list)
+            | (Q(clean_db_phone__endswith=clean_phone[-10:]) if len(clean_phone) >= 10 else Q())
+        )
+        .first()
+    )
+    return user

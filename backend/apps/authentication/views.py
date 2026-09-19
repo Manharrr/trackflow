@@ -39,6 +39,8 @@ from apps.authentication.services import (
     generate_mfa_secret,
     verify_mfa,
     find_user_by_phone,
+    normalize_phone_number,
+    build_workspace_url,
 )
 from apps.authentication.google_auth import verify_google_token
 from apps.tenants.models import Client, UserTenant
@@ -400,10 +402,7 @@ class GoogleLoginAPIView(APIView):
                 is_primary=True,
             ).first()
 
-            workspace_url = (
-                f"http://{domain.domain}:5173"
-                if domain else None
-            )
+            workspace_url = build_workspace_url(selected_tenant, domain=domain)
 
             # Check MFA
             if employee_role == Role.COMPANY_ADMIN:
@@ -681,16 +680,12 @@ class PhoneLoginAPIView(APIView):
                 {"error": "Employee profile has been blocked."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        # Create workspace URL here(subdomain switch aavall)
-        domain=Domain.objects.filter(
+        domain = Domain.objects.filter(
             tenant=selected_tenant,
             is_primary=True,
         ).first()
 
-        workspace_url =(
-            f"http://{domain.domain}:5173"
-            if domain else None
-        )
+        workspace_url = build_workspace_url(selected_tenant, domain=domain)
 
         # Check MFA for Company Admin
         if employee_role == Role.COMPANY_ADMIN:
@@ -967,16 +962,12 @@ class MFALoginAPIView(APIView):
             )
 
         tokens = generate_tokens(user, tenant=selected_tenant)
-# domain switching implemet here
         domain = Domain.objects.filter(
             tenant=selected_tenant,
             is_primary=True,
         ).first()
 
-        workspace_url = (
-            f"http://{domain.domain}:5173"
-            if domain else None
-        )
+        workspace_url = build_workspace_url(selected_tenant, domain=domain)
 
         response = Response(
             {
