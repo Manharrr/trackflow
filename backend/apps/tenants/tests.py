@@ -361,4 +361,146 @@ class TrackFlowTenantMiddlewareTests(TenantTestCase):
             except Exception as exc:
                 self.fail(f"{perm.__class__.__name__}.has_permission raised an exception with request.tenant=FakeTenant: {exc}")
 
+    def test_6_jwt_claim_active_user_tenant_allowed(self):
+        """5a. Valid JWT tenant claim + active UserTenant -> allowed."""
+        from apps.tenants.utils import resolve_request_tenant
+
+        user = User.objects.create_user(
+            username="active_user@test.com",
+            email="active_user@test.com",
+            phone="+919999900001",
+            password="securepassword123",
+        )
+        UserTenant.objects.create(user=user, tenant=self.tenant, is_active=True)
+
+        req = self.factory.get("/api/orders/dashboard/", HTTP_HOST="api.manhargurukkal.site")
+        req.user = user
+        req.tenant = None
+        req.auth = {"schema_name": self.tenant.schema_name, "tenant_id": self.tenant.id}
+
+        resolved = resolve_request_tenant(req)
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved.schema_name, self.tenant.schema_name)
+        self.assertEqual(req.tenant, resolved)
+
+    def test_7_jwt_claim_inactive_user_tenant_rejected(self):
+        """5b. Valid JWT tenant claim + inactive UserTenant -> rejected."""
+        from apps.tenants.utils import resolve_request_tenant
+
+        user = User.objects.create_user(
+            username="inactive_user@test.com",
+            email="inactive_user@test.com",
+            phone="+919999900002",
+            password="securepassword123",
+        )
+        UserTenant.objects.create(user=user, tenant=self.tenant, is_active=False)
+
+        req = self.factory.get("/api/orders/dashboard/", HTTP_HOST="api.manhargurukkal.site")
+        req.user = user
+        req.tenant = None
+        req.auth = {"schema_name": self.tenant.schema_name, "tenant_id": self.tenant.id}
+
+        resolved = resolve_request_tenant(req)
+        self.assertIsNone(resolved)
+        self.assertIsNone(req.tenant)
+
+    def test_8_jwt_claim_no_user_tenant_membership_rejected(self):
+        """5c. Valid JWT tenant claim + no UserTenant membership -> rejected."""
+        from apps.tenants.utils import resolve_request_tenant
+
+        user = User.objects.create_user(
+            username="stranger@test.com",
+            email="stranger@test.com",
+            phone="+919999900003",
+            password="securepassword123",
+        )
+        # No UserTenant created
+
+        req = self.factory.get("/api/orders/dashboard/", HTTP_HOST="api.manhargurukkal.site")
+        req.user = user
+        req.tenant = None
+        req.auth = {"schema_name": self.tenant.schema_name, "tenant_id": self.tenant.id}
+
+        resolved = resolve_request_tenant(req)
+        self.assertIsNone(resolved)
+        self.assertIsNone(req.tenant)
+
+    def test_9_jwt_claim_mismatched_tenant_rejected(self):
+        """5d. JWT tenant claim for Tenant B while user belongs only to Tenant A -> rejected."""
+        from apps.tenants.utils import resolve_request_tenant
+
+        tenant_b = Client.objects.create(
+            schema_name="tenantbeta",
+            name="TenantBeta",
+            email="beta@test.com",
+            phone="+919999900099",
+            status="approved",
+            verified=True,
+        )
+
+        user = User.objects.create_user(
+            username="tenant_a_user@test.com",
+            email="tenant_a_user@test.com",
+            phone="+919999900004",
+            password="securepassword123",
+        )
+        # User only belongs to Tenant A (self.tenant)
+        UserTenant.objects.create(user=user, tenant=self.tenant, is_active=True)
+
+        req = self.factory.get("/api/orders/dashboard/", HTTP_HOST="api.manhargurukkal.site")
+        req.user = user
+        req.tenant = None
+        # Token claims Tenant B
+        req.auth = {"schema_name": "tenantbeta", "tenant_id": tenant_b.id}
+
+        resolved = resolve_request_tenant(req)
+        # Must return None, must NOT return tenant_b, and must NOT fall back to tenant_a
+        self.assertIsNone(resolved)
+        self.assertIsNone(req.tenant)
+
+        # Cleanup tenant_b safely without triggering cascade in public schema
+        from django.db import connection
+        with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM tenants_client WHERE schema_name='tenantbeta'")
+
+    def test_10_superuser_valid_tenant_claim_allowed(self):
+        """5e. Superuser + valid tenant claim -> allowed without UserTenant record."""
+        from apps.tenants.utils import resolve_request_tenant
+
+        admin = User.objects.create_superuser(
+            username="superadmin@test.com",
+            email="superadmin@test.com",
+            phone="+919999900005",
+            password="securepassword123",
+        )
+
+        req = self.factory.get("/api/orders/dashboard/", HTTP_HOST="api.manhargurukkal.site")
+        req.user = admin
+        req.tenant = None
+        req.auth = {"schema_name": self.tenant.schema_name, "tenant_id": self.tenant.id}
+
+        resolved = resolve_request_tenant(req)
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved.schema_name, self.tenant.schema_name)
+        self.assertEqual(req.tenant, resolved)
+
+    def test_11_request_tenant_unauthorized_user_rejected(self):
+        """Rule 3: request.tenant containing Client is rejected if normal user lacks active UserTenant."""
+        from apps.tenants.utils import resolve_request_tenant
+
+        user = User.objects.create_user(
+            username="outsider@test.com",
+            email="outsider@test.com",
+            phone="+919999900006",
+            password="securepassword123",
+        )
+
+        req = self.factory.get("/api/orders/dashboard/")
+        req.user = user
+        req.tenant = self.tenant  # Context assigned e.g. from routing, but user is not member
+
+        resolved = resolve_request_tenant(req)
+        self.assertIsNone(resolved)
+
+
 

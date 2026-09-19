@@ -206,3 +206,70 @@ class NotificationSchemaTestCase(TenantTestCase):
         self.assertEqual(res_unaff.status_code, 200)
         self.assertEqual(res_unaff.data["count"], 0)
         self.assertEqual(res_unaff.data["results"], [])
+
+    def test_notifications_jwt_claim_active_user_tenant_allowed(self):
+        """Regression Test: Valid JWT claim + active UserTenant allows querying notifications."""
+        from apps.authentication.services import generate_tokens
+
+        NotificationService.create(
+            tenant=self.tenant,
+            recipient=self.user_a,
+            notification_type=Notification.NotificationType.SHIPMENT_STATUS,
+            title="JWT Active Notification",
+            message="JWT active test",
+        )
+
+        tokens = generate_tokens(self.user_a, tenant=self.tenant)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+        res = client.get(reverse("notification-list"), HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res.status_code, 200)
+        self.assertGreaterEqual(res.data["count"], 1)
+
+    def test_notifications_jwt_claim_inactive_user_tenant_rejected(self):
+        """Regression Test: Valid JWT claim + inactive UserTenant returns empty notifications."""
+        from apps.authentication.services import generate_tokens
+
+        user_inactive = User.objects.create_user(
+            username="notif_inactive@test.com",
+            email="notif_inactive@test.com",
+            phone="9876540001",
+        )
+        UserTenant.objects.create(user=user_inactive, tenant=self.tenant, is_active=False)
+
+        tokens = generate_tokens(user_inactive, tenant=self.tenant)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+        res = client.get(reverse("notification-list"), HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["count"], 0)
+        self.assertEqual(res.data["results"], [])
+
+    def test_notifications_jwt_claim_mismatched_tenant_rejected(self):
+        """Regression Test: JWT claim for Tenant B while user only belongs to Tenant A is rejected."""
+        from apps.authentication.services import generate_tokens
+        from apps.tenants.models import Client
+        from django_tenants.utils import schema_context
+
+        with schema_context("public"):
+            tenant_b = Client.objects.create(
+                schema_name="notifbeta",
+                name="NotifBeta",
+                email="beta@notif.com",
+                phone="9876540099",
+                status="approved",
+                verified=True,
+            )
+
+        tokens = generate_tokens(self.user_a, tenant=tenant_b)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+        res = client.get(reverse("notification-list"), HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["count"], 0)
+        self.assertEqual(res.data["results"], [])
+
+        from django.db import connection
+        with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM tenants_client WHERE schema_name='notifbeta'")
+

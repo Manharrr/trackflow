@@ -459,4 +459,100 @@ class OrdersTestCase(TenantTestCase):
         res = client.get(reverse("order-dashboard"), HTTP_HOST="api.manhargurukkal.site")
         self.assertIn(res.status_code, [400, 403])
 
+    def test_dashboard_jwt_claim_active_user_tenant_allowed(self):
+        """Regression Test: Valid JWT tenant claim + active UserTenant returns 200."""
+        from apps.authentication.services import generate_tokens
+
+        user = User.objects.create_user(
+            username="jwt_ok@test.com",
+            email="jwt_ok@test.com",
+            phone="9876500001",
+        )
+        UserTenant.objects.create(user=user, tenant=self.tenant, is_active=True)
+        Employee.objects.create(
+            tenant=self.tenant,
+            user=user,
+            role=Role.COMPANY_ADMIN,
+            full_name="JWT Admin",
+            email="jwt_ok@test.com",
+            phone="9876500001",
+        )
+
+        tokens = generate_tokens(user, tenant=self.tenant)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+        res = client.get(reverse("order-dashboard"), HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["role"], "company_admin")
+
+    def test_dashboard_jwt_claim_inactive_user_tenant_rejected(self):
+        """Regression Test: Valid JWT tenant claim + inactive UserTenant returns 400/403."""
+        from apps.authentication.services import generate_tokens
+
+        user = User.objects.create_user(
+            username="jwt_inactive@test.com",
+            email="jwt_inactive@test.com",
+            phone="9876500002",
+        )
+        UserTenant.objects.create(user=user, tenant=self.tenant, is_active=False)
+
+        tokens = generate_tokens(user, tenant=self.tenant)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+        res = client.get(reverse("order-dashboard"), HTTP_HOST="api.manhargurukkal.site")
+        self.assertIn(res.status_code, [400, 403])
+
+    def test_dashboard_jwt_claim_mismatched_tenant_rejected(self):
+        """Regression Test: JWT claim for Tenant B while user only belongs to Tenant A is rejected."""
+        from apps.authentication.services import generate_tokens
+        from apps.tenants.models import Client
+        from django_tenants.utils import schema_context
+
+        with schema_context("public"):
+            tenant_b = Client.objects.create(
+                schema_name="tenantother",
+                name="TenantOther",
+                email="other@test.com",
+                phone="9876500099",
+                status="approved",
+                verified=True,
+            )
+
+        user = User.objects.create_user(
+            username="jwt_mismatch@test.com",
+            email="jwt_mismatch@test.com",
+            phone="9876500003",
+        )
+        # User only belongs to self.tenant
+        UserTenant.objects.create(user=user, tenant=self.tenant, is_active=True)
+
+        # Token created claiming tenant_b
+        tokens = generate_tokens(user, tenant=tenant_b)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+        res = client.get(reverse("order-dashboard"), HTTP_HOST="api.manhargurukkal.site")
+        self.assertIn(res.status_code, [400, 403])
+
+        from django.db import connection
+        with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM tenants_client WHERE schema_name='tenantother'")
+
+    def test_dashboard_jwt_claim_superuser_allowed(self):
+        """Regression Test: Superuser with valid tenant claim is allowed."""
+        from apps.authentication.services import generate_tokens
+
+        admin = User.objects.create_superuser(
+            username="jwt_super@test.com",
+            email="jwt_super@test.com",
+            phone="9876500004",
+            password="securepassword123",
+        )
+
+        tokens = generate_tokens(admin, tenant=self.tenant)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+        res = client.get(reverse("order-dashboard"), HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res.status_code, 200)
+
+
 
