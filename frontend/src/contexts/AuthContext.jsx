@@ -70,8 +70,8 @@ export function AuthProvider({ children }) {
     setStoredAccessToken(token, axiosInstance)
   }
 
-  const refreshAccessToken = async (customRefreshToken = null) => {
-    return tokenRefresher.current.refresh(customRefreshToken)
+  const refreshAccessToken = async (customRefreshToken = null, options = {}) => {
+    return tokenRefresher.current.refresh(customRefreshToken, options)
   }
 
   // Application Startup & Initialization Flow
@@ -80,17 +80,13 @@ export function AuthProvider({ children }) {
       if (isInitializingRef.current) return
       isInitializingRef.current = true
 
+      // Clean any stale auth_transfer parameters from URL if present
+      cleanAuthTransferFromUrl(window)
+
       const urlParams = new URLSearchParams(window.location.search)
-      const urlRefreshToken = urlParams.get('auth_transfer') || urlParams.get('refresh_token')
-
-      if (urlRefreshToken) {
-        sessionStorage.removeItem('logged_out')
-        setStoredRefreshToken(urlRefreshToken)
-      }
-
       const isLoggedOut = urlParams.get('logged_out') === 'true' || sessionStorage.getItem('logged_out') === 'true'
 
-      if (isLoggedOut && !urlRefreshToken) {
+      if (isLoggedOut) {
         if (urlParams.get('logged_out')) {
           urlParams.delete('logged_out')
           const newSearch = urlParams.toString()
@@ -104,32 +100,21 @@ export function AuthProvider({ children }) {
         return
       }
 
-      const activeRefreshToken = urlRefreshToken || getStoredRefreshToken()
-
-      // If no refresh token exists, do NOT make a refresh request
-      if (!activeRefreshToken) {
-        clearStoredTokens(axiosInstance)
-        dispatch({ type: 'LOGOUT' })
-        isInitializingRef.current = false
-        return
-      }
-
       try {
-        await refreshAccessToken(activeRefreshToken)
-
-        cleanAuthTransferFromUrl(window)
+        await refreshAccessToken(null, { allowCookie: true })
 
         const meRes = await axiosInstance.get('/auth/me/')
+        dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
+
+        // Fetch subscription asynchronously in background without blocking UI initialization
         const role = meRes.data.role || meRes.data.user?.role
         if (role === 'company_admin' && meRes.data.company_status === 'approved') {
-          try {
-            const subRes = await getSubscriptionStatus()
+          getSubscriptionStatus().then((subRes) => {
             setSubscription(subRes.data)
-          } catch (err) {
+          }).catch((err) => {
             console.error('Failed to load subscription status:', err)
-          }
+          })
         }
-        dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
 
         // Check if an authenticated company user is on root domain on a protected path
         if (role !== 'super_admin') {
@@ -141,7 +126,6 @@ export function AuthProvider({ children }) {
                 tenant: meRes.data.tenant || meRes.data,
                 currentOrigin: window.location.origin,
                 targetPath: `${path}${window.location.search}`,
-                refreshToken: activeRefreshToken,
               })
               window.location.replace(redirectUrl || `${tenantOrigin}${path}${window.location.search}`)
               return
@@ -229,7 +213,6 @@ export function AuthProvider({ children }) {
       tenant: res.data.tenant || res.data,
       currentOrigin: window.location.origin,
       targetPath: '/dashboard',
-      refreshToken: res.data.refresh,
     })
 
     if (tenantRedirect) {
@@ -241,33 +224,24 @@ export function AuthProvider({ children }) {
     dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
 
     const role = meRes.data.role || meRes.data.user?.role
-    let subData = null
     if (role === 'company_admin' && meRes.data.company_status === 'approved') {
-      try {
-        const subRes = await getSubscriptionStatus()
+      getSubscriptionStatus().then((subRes) => {
         setSubscription(subRes.data)
-        subData = subRes.data
-      } catch (err) {
+      }).catch((err) => {
         console.error('Failed to load subscription status:', err)
-      }
+      })
     }
 
     let targetPath = '/dashboard'
     if (role === 'super_admin') {
       targetPath = '/super-admin'
-    } else if (role === 'company_admin') {
-      if (subData && subData.subscription_status !== 'active') {
-        targetPath = '/payment'
-      } else {
-        targetPath = '/dashboard'
-      }
     } else if (role === 'operations_manager') {
       targetPath = '/operations'
     } else if (role === 'employee') {
       targetPath = '/employee'
     }
 
-    return { redirectUrl: targetPath, subscription: subData, role, user: meRes.data }
+    return { redirectUrl: targetPath, role, user: meRes.data }
   }
 
   const googleLogin = async (token, workspace_code = null) => {
@@ -293,7 +267,6 @@ export function AuthProvider({ children }) {
       tenant: res.data.tenant || res.data,
       currentOrigin: window.location.origin,
       targetPath: '/dashboard',
-      refreshToken: res.data.refresh,
     })
 
     if (tenantRedirect) {
@@ -305,33 +278,24 @@ export function AuthProvider({ children }) {
     dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
 
     const role = meRes.data.role || meRes.data.user?.role
-    let subData = null
     if (role === 'company_admin' && meRes.data.company_status === 'approved') {
-      try {
-        const subRes = await getSubscriptionStatus()
+      getSubscriptionStatus().then((subRes) => {
         setSubscription(subRes.data)
-        subData = subRes.data
-      } catch (err) {
+      }).catch((err) => {
         console.error('Failed to load subscription status:', err)
-      }
+      })
     }
 
     let targetPath = '/dashboard'
     if (role === 'super_admin') {
       targetPath = '/super-admin'
-    } else if (role === 'company_admin') {
-      if (subData && subData.subscription_status !== 'active') {
-        targetPath = '/payment'
-      } else {
-        targetPath = '/dashboard'
-      }
     } else if (role === 'operations_manager') {
       targetPath = '/operations'
     } else if (role === 'employee') {
       targetPath = '/employee'
     }
 
-    return { redirectUrl: targetPath, subscription: subData, role, user: meRes.data }
+    return { redirectUrl: targetPath, role, user: meRes.data }
   }
 
   const register = async (email, username, password, confirm_password) => {
@@ -360,7 +324,6 @@ export function AuthProvider({ children }) {
       tenant: tenant || workspaceUrl,
       currentOrigin: window.location.origin,
       targetPath: '/dashboard',
-      refreshToken: refreshToken,
     })
 
     if (tenantRedirect) {
@@ -372,33 +335,24 @@ export function AuthProvider({ children }) {
     dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
 
     const role = meRes.data.role || meRes.data.user?.role
-    let subData = null
     if (role === 'company_admin' && meRes.data.company_status === 'approved') {
-      try {
-        const subRes = await getSubscriptionStatus()
+      getSubscriptionStatus().then((subRes) => {
         setSubscription(subRes.data)
-        subData = subRes.data
-      } catch (err) {
+      }).catch((err) => {
         console.error('Failed to load subscription status:', err)
-      }
+      })
     }
 
     let targetPath = '/dashboard'
     if (role === 'super_admin') {
       targetPath = '/super-admin'
-    } else if (role === 'company_admin') {
-      if (subData && subData.subscription_status !== 'active') {
-        targetPath = '/payment'
-      } else {
-        targetPath = '/dashboard'
-      }
     } else if (role === 'operations_manager') {
       targetPath = '/operations'
     } else if (role === 'employee') {
       targetPath = '/employee'
     }
 
-    return { redirectUrl: targetPath, user: meRes.data, subscription: subData }
+    return { redirectUrl: targetPath, role, user: meRes.data }
   }
 
   const logout = async () => {

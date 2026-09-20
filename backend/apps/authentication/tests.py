@@ -283,3 +283,63 @@ class AuthenticationRegressionTests(TenantTestCase):
         local_domain = Domain(domain="logesticgo.localhost", tenant=self.tenant)
         local_url = build_workspace_url(self.tenant, domain=local_domain)
         self.assertEqual(local_url, "http://logesticgo.localhost:5173")
+
+    # 11. CORS allowed for tenant workspace domain logesticgo.manhargurukkal.site
+    def test_11_tenant_api_cors_allowed_for_logesticgo(self):
+        response = self.client.options(
+            "/api/auth/token/refresh/",
+            HTTP_ORIGIN="https://logesticgo.manhargurukkal.site",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+        )
+        self.assertEqual(
+            response.headers.get("Access-Control-Allow-Origin"),
+            "https://logesticgo.manhargurukkal.site",
+        )
+        self.assertEqual(
+            response.headers.get("Access-Control-Allow-Credentials"),
+            "true",
+        )
+
+    # 12. CORS allowed dynamically for any valid tenant subdomain (e.g. abc.manhargurukkal.site)
+    def test_12_tenant_api_cors_allowed_for_arbitrary_tenant_subdomain(self):
+        response = self.client.options(
+            "/api/auth/token/refresh/",
+            HTTP_ORIGIN="https://abc.manhargurukkal.site",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+        )
+        self.assertEqual(
+            response.headers.get("Access-Control-Allow-Origin"),
+            "https://abc.manhargurukkal.site",
+        )
+        self.assertEqual(
+            response.headers.get("Access-Control-Allow-Credentials"),
+            "true",
+        )
+
+    # 13. CORS rejected for unauthorized / external domains (e.g. evil-example.com)
+    def test_13_cors_rejected_for_unauthorized_external_origin(self):
+        response = self.client.options(
+            "/api/auth/token/refresh/",
+            HTTP_ORIGIN="https://evil-example.com",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+        )
+        self.assertNotIn("Access-Control-Allow-Origin", response.headers)
+
+    # 14. Refresh token accepted from shared HttpOnly cookie with empty body
+    def test_14_token_refresh_via_cookie_only(self):
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(self.company_admin_user)
+        self.client.cookies["refresh_token"] = str(refresh)
+
+        response = self.client.post(
+            "/api/auth/token/refresh/",
+            {},
+            format="json",
+            HTTP_ORIGIN="https://logesticgo.manhargurukkal.site",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+        self.assertEqual(
+            response.headers.get("Access-Control-Allow-Origin"),
+            "https://logesticgo.manhargurukkal.site",
+        )

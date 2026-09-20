@@ -58,7 +58,6 @@ export default function MFAPage() {
                 tenant: tenant || workspaceUrl || me?.tenant || me?.user?.tenant,
                 currentOrigin: window.location.origin,
                 targetPath: '/dashboard',
-                refreshToken: refreshToken,
             })
             if (redirectUrl) {
                 window.location.replace(redirectUrl)

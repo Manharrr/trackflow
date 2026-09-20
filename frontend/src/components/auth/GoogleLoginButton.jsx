@@ -59,17 +59,6 @@ export default function GoogleLoginButton() {
                 return;
             }
 
-            const redirectUrl = buildTenantRedirectUrl({
-                tenant: data.tenant || data.user?.tenant,
-                currentOrigin: window.location.origin,
-                targetPath: '/dashboard',
-                refreshToken: data.refresh || getStoredRefreshToken(),
-            });
-            if (redirectUrl) {
-                window.location.replace(redirectUrl);
-                return;
-            }
-
             const role = data.user?.role || data.role;
 
             if (role === "super_admin") {

@@ -200,6 +200,7 @@ CORS_ALLOWED_ORIGINS = [
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^http://.*\.localhost:5173$",
+    r"^https://([a-zA-Z0-9-]+\.)?manhargurukkal\.site$",
 ]
 
 # JWT
@@ -226,6 +227,7 @@ CSRF_TRUSTED_ORIGINS = [
     "http://*.localhost:5173",
     # "https://trackflow-indol.vercel.app",
     "https://manhargurukkal.site",
+    "https://*.manhargurukkal.site",
 ]
 
 

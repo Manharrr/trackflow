@@ -36,7 +36,7 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
     };
   });
 
-  test('1. Root login + logesticgo tenant dynamically redirects to logesticgo workspace', () => {
+  test('1. Root login + logesticgo tenant dynamically redirects to logesticgo workspace without auth_transfer', () => {
     const backendResponse = {
       access: 'access_123',
       refresh: 'refresh_abc',
@@ -52,15 +52,15 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
       tenant: backendResponse.tenant,
       currentOrigin: mockWindow.location.origin,
       targetPath: '/dashboard',
-      refreshToken: backendResponse.refresh,
       windowObj: mockWindow,
     });
 
     assert.equal(
       redirectUrl,
-      'https://logesticgo.manhargurukkal.site/dashboard?auth_transfer=refresh_abc'
+      'https://logesticgo.manhargurukkal.site/dashboard'
     );
     assert.notEqual(redirectUrl, 'https://manhargurukkal.site/dashboard');
+    assert.ok(!redirectUrl.includes('auth_transfer'), 'URL must NOT contain auth_transfer parameter');
   });
 
   test('2. Root login + another tenant (abc) dynamically redirects to abc workspace', () => {
@@ -79,15 +79,15 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
       tenant: backendResponse.tenant,
       currentOrigin: mockWindow.location.origin,
       targetPath: '/dashboard',
-      refreshToken: backendResponse.refresh,
       windowObj: mockWindow,
     });
 
     assert.equal(
       redirectUrl,
-      'https://abc.manhargurukkal.site/dashboard?auth_transfer=refresh_def'
+      'https://abc.manhargurukkal.site/dashboard'
     );
     assert.notEqual(redirectUrl, 'https://manhargurukkal.site/dashboard');
+    assert.ok(!redirectUrl.includes('auth_transfer'), 'URL must NOT contain auth_transfer parameter');
   });
 
   test('3. Dynamic tenant resolution safely strips trailing slashes from workspace_url', () => {
@@ -101,14 +101,14 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
       tenant: tenantWithTrailingSlash,
       currentOrigin: mockWindow.location.origin,
       targetPath: '/dashboard',
-      refreshToken: 'tok_xyz',
       windowObj: mockWindow,
     });
 
     assert.equal(
       redirectUrl,
-      'https://xyz.manhargurukkal.site/dashboard?auth_transfer=tok_xyz'
+      'https://xyz.manhargurukkal.site/dashboard'
     );
+    assert.ok(!redirectUrl.includes('auth_transfer'));
   });
 
   test('4. Root login must NEVER finish at https://manhargurukkal.site/dashboard for company users', () => {
@@ -123,13 +123,13 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
         tenant,
         currentOrigin: 'https://manhargurukkal.site',
         targetPath: '/dashboard',
-        refreshToken: 'refresh_token_xyz',
         windowObj: mockWindow,
       });
 
       assert.ok(redirectUrl, 'Must return a cross-origin redirect URL');
       assert.ok(!redirectUrl.startsWith('https://manhargurukkal.site/dashboard'));
       assert.ok(redirectUrl.includes(`${tenant.schema_name}.manhargurukkal.site`));
+      assert.ok(!redirectUrl.includes('auth_transfer'));
     }
   });
 
@@ -167,11 +167,11 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
     }
   });
 
-  test('6. auth_transfer cleanup must not return the browser to root', () => {
+  test('6. Stale auth_transfer or query credentials scrubbed via history.replaceState', () => {
     mockWindow.location.hostname = 'logesticgo.manhargurukkal.site';
     mockWindow.location.origin = 'https://logesticgo.manhargurukkal.site';
     mockWindow.location.pathname = '/dashboard';
-    mockWindow.location.search = '?auth_transfer=transferred_refresh_token_123';
+    mockWindow.location.search = '?auth_transfer=stale_token_123';
 
     cleanAuthTransferFromUrl(mockWindow);
 
@@ -179,12 +179,12 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
     assert.equal(mockWindow.history.replaceStateCalls[0].url, '/dashboard');
     assert.equal(mockWindow.location.pathname, '/dashboard');
     assert.equal(mockWindow.location.search, '');
-    // Origin is completely preserved on tenant domain
+    // Origin is preserved on tenant domain without reloading
     assert.equal(mockWindow.location.origin, 'https://logesticgo.manhargurukkal.site');
     assert.notEqual(mockWindow.location.origin, 'https://manhargurukkal.site');
   });
 
-  test('7. MFA login must dynamically redirect using tenant.workspace_url', () => {
+  test('7. MFA login must dynamically redirect using tenant.workspace_url without credentials in URL', () => {
     const mfaTenant = {
       schema_name: 'logesticgo',
       name: 'logesticgo',
@@ -195,17 +195,17 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
       tenant: mfaTenant,
       currentOrigin: 'https://manhargurukkal.site',
       targetPath: '/dashboard',
-      refreshToken: 'mfa_refresh_token_456',
       windowObj: mockWindow,
     });
 
     assert.equal(
       redirectUrl,
-      'https://logesticgo.manhargurukkal.site/dashboard?auth_transfer=mfa_refresh_token_456'
+      'https://logesticgo.manhargurukkal.site/dashboard'
     );
+    assert.ok(!redirectUrl.includes('auth_transfer'));
   });
 
-  test('8. Google login must dynamically redirect using tenant.workspace_url', () => {
+  test('8. Google login must dynamically redirect using tenant.workspace_url without credentials in URL', () => {
     const googleTenant = {
       schema_name: 'globalfleet',
       name: 'Global Fleet Inc',
@@ -216,14 +216,14 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
       tenant: googleTenant,
       currentOrigin: 'https://manhargurukkal.site',
       targetPath: '/dashboard',
-      refreshToken: 'google_refresh_token_789',
       windowObj: mockWindow,
     });
 
     assert.equal(
       redirectUrl,
-      'https://globalfleet.manhargurukkal.site/dashboard?auth_transfer=google_refresh_token_789'
+      'https://globalfleet.manhargurukkal.site/dashboard'
     );
+    assert.ok(!redirectUrl.includes('auth_transfer'));
   });
 
   test('9. Refreshing the tenant dashboard keeps the tenant URL and does not redirect to root', () => {
@@ -295,5 +295,93 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
 
     assert.equal(isRootOrigin(mockWindow), false);
     assert.equal(getRootOrigin(mockWindow), 'http://localhost:5173');
+  });
+
+  test('15. Company login redirect URL contains NO access/refresh tokens or query parameters', () => {
+    const tenants = [
+      { schema_name: 'logesticgo', workspace_url: 'https://logesticgo.manhargurukkal.site' },
+      { schema_name: 'abc', workspace_url: 'https://abc.manhargurukkal.site' },
+      { schema_name: 'acme_corp', workspace_url: 'https://acme_corp.manhargurukkal.site' },
+    ];
+
+    for (const tenant of tenants) {
+      const redirectUrl = buildTenantRedirectUrl({
+        tenant,
+        currentOrigin: 'https://manhargurukkal.site',
+        targetPath: '/dashboard',
+        windowObj: mockWindow,
+      });
+
+      const parsed = new URL(redirectUrl);
+      assert.equal(parsed.search, '', `Redirect URL ${redirectUrl} must not contain query parameters`);
+      assert.ok(!redirectUrl.includes('auth_transfer'));
+      assert.ok(!redirectUrl.includes('refresh_token'));
+      assert.ok(!redirectUrl.includes('token'));
+      assert.equal(redirectUrl, `https://${tenant.schema_name}.manhargurukkal.site/dashboard`);
+    }
+  });
+
+  test('16. PublicRoute renders loading indicator during isLoading to prevent white screen', async () => {
+    const fs = await import('node:fs/promises');
+    const appSource = await fs.readFile(
+      new URL('../App.jsx', import.meta.url),
+      'utf-8'
+    );
+
+    // Extract PublicRoute body
+    const publicRouteMatch = appSource.match(/function PublicRoute\(\{ children \}\) \{([\s\S]*?)\n\}/);
+    assert.ok(publicRouteMatch, 'PublicRoute component must exist in App.jsx');
+
+    const publicRouteCode = publicRouteMatch[1];
+    // Must NOT return null on isLoading
+    assert.ok(
+      !publicRouteCode.includes('if (isLoading) {\n        return null'),
+      'PublicRoute must not return null on isLoading (prevents white screen)'
+    );
+    assert.ok(
+      publicRouteCode.includes('animate-spin') || publicRouteCode.includes('Loading'),
+      'PublicRoute must render a visible loading indicator during isLoading'
+    );
+  });
+
+  test('17. RoleRedirect renders loading indicator during isLoading to prevent white screen', async () => {
+    const fs = await import('node:fs/promises');
+    const roleRedirectSource = await fs.readFile(
+      new URL('../routes/RoleRedirect.jsx', import.meta.url),
+      'utf-8'
+    );
+
+    assert.ok(
+      !roleRedirectSource.includes('if (isLoading) {\n    return null'),
+      'RoleRedirect must not return null on isLoading'
+    );
+    assert.ok(
+      roleRedirectSource.includes('animate-spin'),
+      'RoleRedirect must render a visible loading indicator during isLoading'
+    );
+  });
+
+  test('18. AuthContext dispatches LOGIN_SUCCESS without waiting for subscription-status', async () => {
+    const fs = await import('node:fs/promises');
+    const authContextSource = await fs.readFile(
+      new URL('../contexts/AuthContext.jsx', import.meta.url),
+      'utf-8'
+    );
+
+    // Verify LOGIN_SUCCESS comes BEFORE any subscription fetching
+    const initAuthMatch = authContextSource.match(/const initAuth = async \(\) => \{([\s\S]*?)\n    \}/);
+    assert.ok(initAuthMatch, 'initAuth function must exist in AuthContext.jsx');
+
+    const initAuthBody = initAuthMatch[1];
+    const loginSuccessIndex = initAuthBody.indexOf("dispatch({ type: 'LOGIN_SUCCESS'");
+    assert.ok(loginSuccessIndex !== -1, 'LOGIN_SUCCESS must be dispatched in initAuth');
+
+    // Any call to getSubscriptionStatus must not be awaited before LOGIN_SUCCESS
+    const awaitSubIndex = initAuthBody.indexOf('await getSubscriptionStatus');
+    assert.equal(
+      awaitSubIndex,
+      -1,
+      'initAuth must not await getSubscriptionStatus (subscription status must not block auth rendering)'
+    );
   });
 });

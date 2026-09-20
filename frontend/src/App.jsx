@@ -60,7 +60,11 @@ function PublicRoute({ children }) {
     } = useAuth()
 
     if (isLoading) {
-        return null
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <div className="w-8 h-8 border-4 border-teal-600 border-t-transparent rounded-full animate-spin" />
+            </div>
+        )
     }
 
     // Tenant subdomains are dedicated workspaces for authenticated users.
@@ -82,7 +86,6 @@ function PublicRoute({ children }) {
                 tenant: user?.tenant || user?.tenant_data || user,
                 currentOrigin: window.location.origin,
                 targetPath: '/dashboard',
-                refreshToken: getStoredRefreshToken(),
             })
             window.location.replace(redirectUrl || `${tenantOrigin}/dashboard`)
             return null

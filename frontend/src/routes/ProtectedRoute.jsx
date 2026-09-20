@@ -82,7 +82,6 @@ export default function ProtectedRoute({ children }) {
         tenant: user?.tenant || user?.tenant_data || user,
         currentOrigin: window.location.origin,
         targetPath: `${location.pathname}${location.search}`,
-        refreshToken: getStoredRefreshToken(),
       })
       window.location.replace(redirectUrl || `${tenantOrigin}${location.pathname}${location.search}`)
       return null

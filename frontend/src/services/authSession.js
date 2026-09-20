@@ -81,7 +81,7 @@ export const clearStoredTokens = (axiosClient = null) => {
 export const createTokenRefresher = ({ axiosClient, onLogout = () => {} }) => {
   let inFlightRefreshPromise = null;
 
-  const refresh = async (customRefreshToken = null) => {
+  const refresh = async (customRefreshToken = null, { allowCookie = false } = {}) => {
     // Reuse existing promise if a refresh is already in flight
     if (inFlightRefreshPromise) {
       return inFlightRefreshPromise;
@@ -94,8 +94,8 @@ export const createTokenRefresher = ({ axiosClient, onLogout = () => {} }) => {
 
     const tokenToUse = customRefreshToken || getStoredRefreshToken();
 
-    // Critical: Do NOT make a request if no refresh token exists
-    if (!tokenToUse) {
+    // If no stored token and cookie fallback is not permitted, do NOT send request
+    if (!tokenToUse && !allowCookie) {
       clearStoredTokens(axiosClient);
       onLogout();
       throw new Error('No refresh token available');
@@ -103,14 +103,16 @@ export const createTokenRefresher = ({ axiosClient, onLogout = () => {} }) => {
 
     inFlightRefreshPromise = (async () => {
       try {
-        const payload = { refresh: tokenToUse };
+        const payload = tokenToUse ? { refresh: tokenToUse } : {};
         const response = await axiosClient.post('/auth/token/refresh/', payload);
 
         const newAccess = response.data?.access;
         const newRefresh = response.data?.refresh || tokenToUse;
 
         setStoredAccessToken(newAccess, axiosClient);
-        setStoredRefreshToken(newRefresh);
+        if (newRefresh) {
+          setStoredRefreshToken(newRefresh);
+        }
 
         return newAccess;
       } catch (err) {
@@ -231,17 +233,15 @@ export const isRootOrigin = (windowObj = (typeof window !== 'undefined' ? window
   return false;
 };
 
-
-
 /**
  * Builds dynamic redirect URL to tenant workspace if on a different origin.
- * Returns absolute URL string with auth_transfer if redirection is required, or null if already on target origin.
+ * Returns absolute URL string if redirection is required, or null if already on target origin.
+ * No auth_transfer or tokens are attached to the URL; authentication relies on the shared HttpOnly refresh cookie.
  */
 export const buildTenantRedirectUrl = ({
   tenant,
   currentOrigin = (typeof window !== 'undefined' ? window.location.origin : ''),
   targetPath = '/dashboard',
-  refreshToken = null,
   windowObj = (typeof window !== 'undefined' ? window : null),
 }) => {
   const targetOrigin = getTenantWorkspaceOrigin(tenant, windowObj);
@@ -252,11 +252,7 @@ export const buildTenantRedirectUrl = ({
 
   if (normalizedCurrent !== normalizedTarget) {
     const cleanPath = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
-    const url = new URL(`${normalizedTarget}${cleanPath}`);
-    if (refreshToken) {
-      url.searchParams.set('auth_transfer', refreshToken);
-    }
-    return url.toString();
+    return `${normalizedTarget}${cleanPath}`;
   }
 
   return null;
