@@ -57,6 +57,8 @@ class EmployeeOnboardingFlowTestCase(TenantTestCase):
 
 
     def setUp(self):
+        from django.db import connection
+        connection.set_tenant(self.tenant)
         super().setUp()
 
         # Create a Company Admin User
@@ -85,6 +87,11 @@ class EmployeeOnboardingFlowTestCase(TenantTestCase):
             email=self.admin_user.email,
             phone=self.admin_user.phone,
         )
+
+    def tearDown(self):
+        from django.db import connection
+        connection.set_tenant(self.tenant)
+        super().tearDown()
 
     def test_complete_onboarding_activation_and_login_flow(self):
         # Test Onboarding creation
@@ -234,3 +241,236 @@ class EmployeeOnboardingFlowTestCase(TenantTestCase):
         self.assertEqual(res_prof_patch.status_code, 200)
         emp.refresh_from_db()
         self.assertEqual(emp.address, "New Driver Address")
+
+    def test_company_admin_create_via_public_api_host(self):
+        from rest_framework.test import APIClient
+        from django.urls import reverse
+        from django_tenants.utils import schema_context
+
+        client = APIClient()
+        client.force_authenticate(user=self.admin_user)
+        create_url = reverse("employee-create")
+
+        payload = {
+            "full_name": "Public API Worker",
+            "email": "public_api_worker@trackflow.test",
+            "phone": "9991112233",
+            "role": Role.EMPLOYEE,
+            "department": "Logistics",
+            "designation": "Dispatcher",
+        }
+
+        # Calling through the public API hostname triggers TrackFlowTenantMiddleware
+        # which sets request.tenant = None and switches connection schema to public.
+        res = client.post(create_url, payload, HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data["message"], "Employee created successfully.")
+        self.assertEqual(res.data["data"]["email"], "public_api_worker@trackflow.test")
+
+        # Verify employee was created in tenant schema
+        with schema_context(self.tenant.schema_name):
+            created_emp = Employee.objects.filter(email="public_api_worker@trackflow.test").first()
+            self.assertIsNotNone(created_emp)
+            self.assertEqual(created_emp.role, Role.EMPLOYEE)
+            self.assertEqual(created_emp.tenant_id, self.tenant.id)
+
+    def test_non_company_admin_rejected_403(self):
+        from rest_framework.test import APIClient
+        from django.urls import reverse
+        from django_tenants.utils import schema_context
+
+        # Create a regular employee user
+        regular_user = User.objects.create_user(
+            username="regular_worker@trackflow.test",
+            email="regular_worker@trackflow.test",
+            phone="8881112233",
+            password="password123",
+        )
+        UserTenant.objects.create(
+            user=regular_user,
+            tenant=self.tenant,
+            is_active=True,
+        )
+        with schema_context(self.tenant.schema_name):
+            Employee.objects.create(
+                tenant=self.tenant,
+                user=regular_user,
+                role=Role.EMPLOYEE,
+                full_name="Regular Worker",
+                email=regular_user.email,
+                phone=regular_user.phone,
+            )
+
+        client = APIClient()
+        client.force_authenticate(user=regular_user)
+        create_url = reverse("employee-create")
+
+        payload = {
+            "full_name": "Subordinate Worker",
+            "email": "subordinate@trackflow.test",
+            "phone": "8882223344",
+            "role": Role.EMPLOYEE,
+        }
+
+        res = client.post(create_url, payload, HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.data.get("detail"), "Only Company Admin can perform this action.")
+
+    def test_inactive_user_tenant_rejected_403(self):
+        from rest_framework.test import APIClient
+        from django.urls import reverse
+        from django_tenants.utils import schema_context
+
+        with schema_context('public'):
+            self.user_tenant.is_active = False
+            self.user_tenant.save()
+
+        try:
+            client = APIClient()
+            client.force_authenticate(user=self.admin_user)
+            create_url = reverse("employee-create")
+
+            payload = {
+                "full_name": "Denied Worker",
+                "email": "denied@trackflow.test",
+                "phone": "7771112233",
+                "role": Role.EMPLOYEE,
+            }
+
+            res = client.post(create_url, payload, HTTP_HOST="api.manhargurukkal.site")
+            self.assertEqual(res.status_code, 403)
+            self.assertEqual(res.data.get("detail"), "Only Company Admin can perform this action.")
+        finally:
+            with schema_context('public'):
+                self.user_tenant.is_active = True
+                self.user_tenant.save()
+
+    def test_blocked_employee_rejected_403(self):
+        from rest_framework.test import APIClient
+        from django.urls import reverse
+        from django_tenants.utils import schema_context
+
+        with schema_context(self.tenant.schema_name):
+            Employee.objects.filter(id=self.admin_employee.id).update(is_blocked=True)
+
+        try:
+            client = APIClient()
+            client.force_authenticate(user=self.admin_user)
+            create_url = reverse("employee-create")
+
+            payload = {
+                "full_name": "Blocked Worker",
+                "email": "blocked@trackflow.test",
+                "phone": "6661112233",
+                "role": Role.EMPLOYEE,
+            }
+
+            res = client.post(create_url, payload, HTTP_HOST="api.manhargurukkal.site")
+            self.assertEqual(res.status_code, 403)
+            self.assertEqual(res.data.get("detail"), "Only Company Admin can perform this action.")
+        finally:
+            with schema_context(self.tenant.schema_name):
+                Employee.objects.filter(id=self.admin_employee.id).update(is_blocked=False)
+
+    def test_inactive_employee_rejected_403(self):
+        from rest_framework.test import APIClient
+        from django.urls import reverse
+        from django_tenants.utils import schema_context
+
+        with schema_context(self.tenant.schema_name):
+            Employee.objects.filter(id=self.admin_employee.id).update(is_active=False)
+
+        try:
+            client = APIClient()
+            client.force_authenticate(user=self.admin_user)
+            create_url = reverse("employee-create")
+
+            payload = {
+                "full_name": "Inactive Admin Worker",
+                "email": "inactiveadmin@trackflow.test",
+                "phone": "5551112233",
+                "role": Role.EMPLOYEE,
+            }
+
+            res = client.post(create_url, payload, HTTP_HOST="api.manhargurukkal.site")
+            self.assertEqual(res.status_code, 403)
+            self.assertEqual(res.data.get("detail"), "Only Company Admin can perform this action.")
+        finally:
+            with schema_context(self.tenant.schema_name):
+                Employee.objects.filter(id=self.admin_employee.id).update(is_active=True)
+
+    def test_tenant_isolation_and_schema_scoping(self):
+        from rest_framework.test import APIClient
+        from django.urls import reverse
+        from apps.tenants.models import Client
+        from django_tenants.utils import schema_context
+
+        # Create another tenant that the user does NOT belong to (must be created in public schema)
+        with schema_context('public'):
+            foreign_tenant = Client.objects.create(
+                schema_name="foreigntest",
+                name="Foreign Tenant",
+                email="foreign@test.com",
+                phone="0009998877",
+                status="approved",
+                verified=True,
+            )
+
+        client = APIClient()
+        # User authenticated, but simulate a token claim claiming a foreign tenant
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(self.admin_user)
+        refresh["schema_name"] = "foreigntest"
+        access_token = str(refresh.access_token)
+
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
+        create_url = reverse("employee-create")
+
+        payload = {
+            "full_name": "Intruder Worker",
+            "email": "intruder@trackflow.test",
+            "phone": "4440001122",
+            "role": Role.EMPLOYEE,
+        }
+
+        # Since user has no UserTenant for foreigntest, resolve_request_tenant returns None
+        res = client.post(create_url, payload, HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.data.get("detail"), "Only Company Admin can perform this action.")
+
+    def test_superuser_behavior_preserved(self):
+        from rest_framework.test import APIClient
+        from django.urls import reverse
+
+        super_user = User.objects.create_user(
+            username="superuser@trackflow.test",
+            email="superuser@trackflow.test",
+            phone="3330001122",
+            password="superpassword123",
+        )
+        super_user.is_superuser = True
+        super_user.is_staff = True
+        super_user.save()
+
+        UserTenant.objects.create(
+            user=super_user,
+            tenant=self.tenant,
+            is_active=True,
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=super_user)
+        create_url = reverse("employee-create")
+
+        payload = {
+            "full_name": "Superuser Onboarded",
+            "email": "superonboarded@trackflow.test",
+            "phone": "2220001122",
+            "role": Role.EMPLOYEE,
+            "department": "Executive",
+            "designation": "Associate",
+        }
+
+        res = client.post(create_url, payload, HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data["data"]["email"], "superonboarded@trackflow.test")

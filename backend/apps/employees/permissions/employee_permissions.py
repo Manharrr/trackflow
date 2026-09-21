@@ -1,6 +1,9 @@
 from rest_framework.permissions import BasePermission
+from django_tenants.utils import schema_context
+
 from apps.employees.models.employee import Employee, Role
 from apps.tenants.models import Client
+from apps.tenants.utils import resolve_request_tenant
 
 
 class IsCompanyAdmin(BasePermission):
@@ -11,22 +14,29 @@ class IsCompanyAdmin(BasePermission):
     message = "Only Company Admin can perform this action."
 
     def has_permission(self, request, view):
-        tenant = getattr(request, "tenant", None)
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        tenant = getattr(request, "tenant", None) or resolve_request_tenant(request)
         if (
-            not request.user.is_authenticated
-            or not tenant
+            not tenant
             or not isinstance(tenant, Client)
         ):
             return False
 
+        request.tenant = tenant
+
         if request.user.is_superuser:
             return True
 
-        return Employee.objects.filter(
-            user=request.user,
-            role=Role.COMPANY_ADMIN,
-            tenant=request.tenant,
-        ).exists()
+        with schema_context(tenant.schema_name):
+            return Employee.objects.filter(
+                user=request.user,
+                role=Role.COMPANY_ADMIN,
+                tenant=tenant,
+                is_active=True,
+                is_blocked=False,
+            ).exists()
 
 
 class IsOperationsManager(BasePermission):
@@ -37,22 +47,29 @@ class IsOperationsManager(BasePermission):
     message = "Only Operations Manager can perform this action."
 
     def has_permission(self, request, view):
-        tenant = getattr(request, "tenant", None)
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        tenant = getattr(request, "tenant", None) or resolve_request_tenant(request)
         if (
-            not request.user.is_authenticated
-            or not tenant
+            not tenant
             or not isinstance(tenant, Client)
         ):
             return False
 
+        request.tenant = tenant
+
         if request.user.is_superuser:
             return True
 
-        return Employee.objects.filter(
-            user=request.user,
-            role=Role.OPERATIONS_MANAGER,
-            tenant=request.tenant,
-        ).exists()
+        with schema_context(tenant.schema_name):
+            return Employee.objects.filter(
+                user=request.user,
+                role=Role.OPERATIONS_MANAGER,
+                tenant=tenant,
+                is_active=True,
+                is_blocked=False,
+            ).exists()
 
 
 class IsEmployee(BasePermission):
@@ -63,19 +80,29 @@ class IsEmployee(BasePermission):
     message = "Only Employees can perform this action."
 
     def has_permission(self, request, view):
-        tenant = getattr(request, "tenant", None)
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        tenant = getattr(request, "tenant", None) or resolve_request_tenant(request)
         if (
-            not request.user.is_authenticated
-            or not tenant
+            not tenant
             or not isinstance(tenant, Client)
         ):
             return False
 
-        return Employee.objects.filter(
-            user=request.user,
-            role=Role.EMPLOYEE,
-            tenant=request.tenant,
-        ).exists()
+        request.tenant = tenant
+
+        if request.user.is_superuser:
+            return True
+
+        with schema_context(tenant.schema_name):
+            return Employee.objects.filter(
+                user=request.user,
+                role=Role.EMPLOYEE,
+                tenant=tenant,
+                is_active=True,
+                is_blocked=False,
+            ).exists()
 
 
 class IsCompanyAdminOrOperationsManager(BasePermission):
@@ -86,25 +113,32 @@ class IsCompanyAdminOrOperationsManager(BasePermission):
     message = "You don't have permission to perform this action."
 
     def has_permission(self, request, view):
-        tenant = getattr(request, "tenant", None)
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        tenant = getattr(request, "tenant", None) or resolve_request_tenant(request)
         if (
-            not request.user.is_authenticated
-            or not tenant
+            not tenant
             or not isinstance(tenant, Client)
         ):
             return False
 
+        request.tenant = tenant
+
         if request.user.is_superuser:
             return True
 
-        return Employee.objects.filter(
-            user=request.user,
-            tenant=request.tenant,
-            role__in=[
-                Role.COMPANY_ADMIN,
-                Role.OPERATIONS_MANAGER,
-            ],
-        ).exists()
+        with schema_context(tenant.schema_name):
+            return Employee.objects.filter(
+                user=request.user,
+                tenant=tenant,
+                role__in=[
+                    Role.COMPANY_ADMIN,
+                    Role.OPERATIONS_MANAGER,
+                ],
+                is_active=True,
+                is_blocked=False,
+            ).exists()
 
 
 class IsTenantEmployee(BasePermission):
@@ -115,18 +149,25 @@ class IsTenantEmployee(BasePermission):
     message = "Access denied. You do not belong to this workspace."
 
     def has_permission(self, request, view):
-        tenant = getattr(request, "tenant", None)
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        tenant = getattr(request, "tenant", None) or resolve_request_tenant(request)
         if (
-            not request.user.is_authenticated
-            or not tenant
+            not tenant
             or not isinstance(tenant, Client)
         ):
             return False
 
+        request.tenant = tenant
+
         if request.user.is_superuser:
             return True
 
-        return Employee.objects.filter(
-            user=request.user,
-            tenant=request.tenant,
-        ).exists()
+        with schema_context(tenant.schema_name):
+            return Employee.objects.filter(
+                user=request.user,
+                tenant=tenant,
+                is_active=True,
+                is_blocked=False,
+            ).exists()

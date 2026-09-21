@@ -7,6 +7,10 @@ from django.db.models import Q
 from django.utils import timezone
 from datetime import datetime
 
+from django_tenants.utils import schema_context
+
+from apps.tenants.models import Client
+from apps.tenants.utils import resolve_request_tenant
 from apps.employees.models.employee import Employee, Role
 from apps.employees.serializers.employee_serializers import (
     EmployeeCreateSerializer,
@@ -34,25 +38,34 @@ class EmployeeCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, IsCompanyAdmin]
 
     def post(self, request):
-        serializer = EmployeeCreateSerializer(
-            data=request.data,
-            context={"request": request},
-        )
-        serializer.is_valid(raise_exception=True)
+        tenant = getattr(request, "tenant", None) or resolve_request_tenant(request)
+        if not tenant or not isinstance(tenant, Client):
+            return Response(
+                {"detail": "Tenant context could not be resolved."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        request.tenant = tenant
 
-        employee = EmployeeOnboardingService.create_employee(
-            tenant=request.tenant,
-            created_by=request.user,
-            **serializer.validated_data
-        )
+        with schema_context(tenant.schema_name):
+            serializer = EmployeeCreateSerializer(
+                data=request.data,
+                context={"request": request, "tenant": tenant},
+            )
+            serializer.is_valid(raise_exception=True)
 
-        return Response(
-            {
-                "message": "Employee created successfully.",
-                "data": EmployeeDetailSerializer(employee).data,
-            },
-            status=status.HTTP_201_CREATED,
-        )
+            employee = EmployeeOnboardingService.create_employee(
+                tenant=tenant,
+                created_by=request.user,
+                **serializer.validated_data
+            )
+
+            return Response(
+                {
+                    "message": "Employee created successfully.",
+                    "data": EmployeeDetailSerializer(employee).data,
+                },
+                status=status.HTTP_201_CREATED,
+            )
 
 
 class EmployeeListAPIView(APIView):
