@@ -227,4 +227,24 @@ describe('Auth Session & Token Refresh Regression Suite', () => {
       'Bearer new_access_token_xyz'
     );
   });
+
+  test('8. Cookie-based refresh sends empty payload with allowCookie: true when stored token is null', async () => {
+    clearStoredTokens(mockAxios);
+    assert.equal(getStoredRefreshToken(), null);
+
+    const refresher = createTokenRefresher({
+      axiosClient: mockAxios,
+      onLogout: () => { logoutTriggered = true; },
+    });
+
+    const newAccess = await refresher.refresh(null, { allowCookie: true });
+
+    assert.equal(newAccess, 'new_access_token_xyz');
+    assert.equal(postCalls.length, 1);
+    assert.equal(postCalls[0].url, '/auth/token/refresh/');
+    assert.deepEqual(postCalls[0].data, {});
+    assert.equal(getStoredAccessToken(), 'new_access_token_xyz');
+    assert.equal(getStoredRefreshToken(), 'new_rotated_refresh_xyz');
+    assert.equal(logoutTriggered, false);
+  });
 });

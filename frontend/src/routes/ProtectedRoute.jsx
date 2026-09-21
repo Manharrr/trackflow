@@ -44,10 +44,10 @@ const ROUTE_PERMISSIONS = {
 };
 
 export default function ProtectedRoute({ children }) {
-  const { isAuthenticated, isLoading, user, subscription } = useAuth()
+  const { isAuthenticated, isLoading, user, subscription, isSubscriptionLoading } = useAuth()
   const location = useLocation()
 
-  if (isLoading) {
+  if (isLoading || (user?.role === 'company_admin' && isSubscriptionLoading)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-teal-600 border-t-transparent rounded-full animate-spin" />
@@ -91,12 +91,13 @@ export default function ProtectedRoute({ children }) {
   // Company Admin Subscription Gating
   if (role === 'company_admin') {
     const isPaymentRoute = /^\/payment(\/.*)?$/.test(path)
+    const isAccountSetupRoute = /^\/(profile|change-password|mfa\/setup)$/.test(path)
     const isSubscriptionActive = subscription?.subscription_status === 'active'
 
     if (!isSubscriptionActive) {
       // Inactive subscription (payment_pending, expired, cancelled)
-      // Allow payment pages, block paid application routes
-      if (!isPaymentRoute) {
+      // Allow payment pages and essential account setup, redirect dashboard/business routes to payment
+      if (!isPaymentRoute && !isAccountSetupRoute) {
         return <Navigate to="/payment" replace />
       }
       return children

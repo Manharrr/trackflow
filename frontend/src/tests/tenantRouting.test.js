@@ -7,6 +7,8 @@ import {
   isRootOrigin,
   buildTenantRedirectUrl,
   cleanAuthTransferFromUrl,
+  getWebSocketBaseUrl,
+  getApiBaseOrigin,
 } from '../services/authSession.js';
 
 describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
@@ -361,14 +363,18 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
     );
   });
 
-  test('18. AuthContext dispatches LOGIN_SUCCESS without waiting for subscription-status', async () => {
+  test('18. AuthContext coordinates subscription status to eliminate the /payment redirect race condition', async () => {
     const fs = await import('node:fs/promises');
     const authContextSource = await fs.readFile(
       new URL('../contexts/AuthContext.jsx', import.meta.url),
       'utf-8'
     );
+    const protectedRouteSource = await fs.readFile(
+      new URL('../routes/ProtectedRoute.jsx', import.meta.url),
+      'utf-8'
+    );
 
-    // Verify LOGIN_SUCCESS comes BEFORE any subscription fetching
+    // Verify LOGIN_SUCCESS exists in initAuth
     const initAuthMatch = authContextSource.match(/const initAuth = async \(\) => \{([\s\S]*?)\n    \}/);
     assert.ok(initAuthMatch, 'initAuth function must exist in AuthContext.jsx');
 
@@ -376,12 +382,56 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
     const loginSuccessIndex = initAuthBody.indexOf("dispatch({ type: 'LOGIN_SUCCESS'");
     assert.ok(loginSuccessIndex !== -1, 'LOGIN_SUCCESS must be dispatched in initAuth');
 
-    // Any call to getSubscriptionStatus must not be awaited before LOGIN_SUCCESS
-    const awaitSubIndex = initAuthBody.indexOf('await getSubscriptionStatus');
-    assert.equal(
-      awaitSubIndex,
-      -1,
-      'initAuth must not await getSubscriptionStatus (subscription status must not block auth rendering)'
+    // Verify AuthContext exports isSubscriptionLoading
+    assert.ok(
+      authContextSource.includes('isSubscriptionLoading'),
+      'AuthContext must export isSubscriptionLoading'
     );
+
+    // Verify ProtectedRoute checks isSubscriptionLoading before evaluating subscription_status
+    assert.ok(
+      protectedRouteSource.includes('isSubscriptionLoading'),
+      'ProtectedRoute must check isSubscriptionLoading'
+    );
+    assert.ok(
+      protectedRouteSource.includes('user?.role === \'company_admin\' && isSubscriptionLoading'),
+      'ProtectedRoute must show loading spinner if company_admin subscription is loading'
+    );
+  });
+
+  test('19. getWebSocketBaseUrl resolves production wss://api.manhargurukkal.site and local ws://localhost:8000', () => {
+    // Production tenant subdomain
+    const prodTenantWin = { location: { hostname: 'logesticgo.manhargurukkal.site', protocol: 'https:' } };
+    assert.equal(getWebSocketBaseUrl(prodTenantWin), 'wss://api.manhargurukkal.site');
+
+    // Production root domain
+    const prodRootWin = { location: { hostname: 'manhargurukkal.site', protocol: 'https:' } };
+    assert.equal(getWebSocketBaseUrl(prodRootWin), 'wss://api.manhargurukkal.site');
+
+    // Localhost dev
+    const localWin = { location: { hostname: 'localhost', protocol: 'http:' } };
+    assert.equal(getWebSocketBaseUrl(localWin), 'ws://localhost:8000');
+
+    // Local tenant subdomain
+    const localTenantWin = { location: { hostname: 'logesticgo.localhost', protocol: 'http:' } };
+    assert.equal(getWebSocketBaseUrl(localTenantWin), 'ws://logesticgo.localhost:8000');
+  });
+
+  test('20. getApiBaseOrigin resolves production https://api.manhargurukkal.site and local http://localhost:8000', () => {
+    // Production tenant subdomain
+    const prodTenantWin = { location: { hostname: 'logesticgo.manhargurukkal.site', protocol: 'https:' } };
+    assert.equal(getApiBaseOrigin(prodTenantWin), 'https://api.manhargurukkal.site');
+
+    // Production root domain
+    const prodRootWin = { location: { hostname: 'manhargurukkal.site', protocol: 'https:' } };
+    assert.equal(getApiBaseOrigin(prodRootWin), 'https://api.manhargurukkal.site');
+
+    // Localhost dev
+    const localWin = { location: { hostname: 'localhost', protocol: 'http:' } };
+    assert.equal(getApiBaseOrigin(localWin), 'http://localhost:8000');
+
+    // Local tenant subdomain
+    const localTenantWin = { location: { hostname: 'logesticgo.localhost', protocol: 'http:' } };
+    assert.equal(getApiBaseOrigin(localTenantWin), 'http://logesticgo.localhost:8000');
   });
 });

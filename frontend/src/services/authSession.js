@@ -276,3 +276,66 @@ export const cleanAuthTransferFromUrl = (windowObj = (typeof window !== 'undefin
     windowObj.history.replaceState({}, '', newPath);
   }
 };
+
+/**
+ * Resolves the WebSocket base URL for the current environment.
+ * In production: wss://api.manhargurukkal.site
+ * In local environment: ws://localhost:8000
+ */
+export const getWebSocketBaseUrl = (windowObj = (typeof window !== 'undefined' ? window : null)) => {
+  const apiUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || '';
+  if (apiUrl.startsWith('http://') || apiUrl.startsWith('https://')) {
+    try {
+      const parsed = new URL(apiUrl);
+      const wsProtocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${wsProtocol}//${parsed.host}`;
+    } catch {
+      // fallback
+    }
+  }
+
+  const hostname = windowObj?.location?.hostname || 'localhost';
+  const isLocal =
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname === '127.0.0.1';
+
+  if (isLocal) {
+    const protocol = windowObj?.location?.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${hostname}:8000`;
+  }
+
+  const protocol = windowObj?.location?.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//api.manhargurukkal.site`;
+};
+
+/**
+ * Resolves the API base origin (host + protocol) for media assets and backend services.
+ * In production: https://api.manhargurukkal.site
+ * In local environment: http://<hostname>:8000
+ */
+export const getApiBaseOrigin = (windowObj = (typeof window !== 'undefined' ? window : null)) => {
+  const apiUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || '';
+  if (apiUrl.startsWith('http://') || apiUrl.startsWith('https://')) {
+    try {
+      const parsed = new URL(apiUrl);
+      return parsed.origin;
+    } catch {
+      // fallback
+    }
+  }
+
+  const hostname = windowObj?.location?.hostname || 'localhost';
+  const isLocal =
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname === '127.0.0.1';
+
+  if (isLocal) {
+    const protocol = windowObj?.location?.protocol || 'http:';
+    return `${protocol}//${hostname}:8000`;
+  }
+
+  return 'https://api.manhargurukkal.site';
+};
+

@@ -104,17 +104,23 @@ export function AuthProvider({ children }) {
         await refreshAccessToken(null, { allowCookie: true })
 
         const meRes = await axiosInstance.get('/auth/me/')
-        dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
-
-        // Fetch subscription asynchronously in background without blocking UI initialization
         const role = meRes.data.role || meRes.data.user?.role
+
+        // Synchronize subscription retrieval before finishing initialization to eliminate race conditions
         if (role === 'company_admin' && meRes.data.company_status === 'approved') {
-          getSubscriptionStatus().then((subRes) => {
+          setIsSubscriptionLoading(true)
+          try {
+            const subRes = await getSubscriptionStatus()
             setSubscription(subRes.data)
-          }).catch((err) => {
+          } catch (err) {
             console.error('Failed to load subscription status:', err)
-          })
+            setSubscription(null)
+          } finally {
+            setIsSubscriptionLoading(false)
+          }
         }
+
+        dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
 
         // Check if an authenticated company user is on root domain on a protected path
         if (role !== 'super_admin') {
@@ -143,7 +149,7 @@ export function AuthProvider({ children }) {
     initAuth()
   }, [])
 
-  // Axios Response Interceptor (Auto-refresh on 401)
+  // Axios Response Interceptor (Auto-refresh on 401 with Cookie support for Tenant subdomains)
   useEffect(() => {
     const interceptor = axiosInstance.interceptors.response.use(
       (response) => response,
@@ -159,19 +165,10 @@ export function AuthProvider({ children }) {
           !originalRequest.url.includes('/auth/token/refresh/') &&
           !originalRequest.url.includes('/auth/login/')
         ) {
-          const storedRefresh = getStoredRefreshToken()
-          if (!storedRefresh) {
-            // No refresh token available; abort without calling refresh endpoint
-            clearStoredTokens(axiosInstance)
-            dispatch({ type: 'LOGOUT' })
-            const rootOrigin = getRootOrigin(window)
-            window.location.href = `${rootOrigin}/?logged_out=true`
-            return Promise.reject(error)
-          }
-
           originalRequest._retry = true
           try {
-            const newAccess = await refreshAccessToken()
+            // Attempt refresh with allowCookie: true to support cross-subdomain tenant workspaces
+            const newAccess = await refreshAccessToken(null, { allowCookie: true })
             originalRequest.headers['Authorization'] = `Bearer ${newAccess}`
             return axiosInstance(originalRequest)
           } catch (err) {
@@ -221,16 +218,22 @@ export function AuthProvider({ children }) {
     }
 
     const meRes = await axiosInstance.get('/auth/me/')
-    dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
-
     const role = meRes.data.role || meRes.data.user?.role
+    let subData = null
     if (role === 'company_admin' && meRes.data.company_status === 'approved') {
-      getSubscriptionStatus().then((subRes) => {
+      setIsSubscriptionLoading(true)
+      try {
+        const subRes = await getSubscriptionStatus()
+        subData = subRes.data
         setSubscription(subRes.data)
-      }).catch((err) => {
+      } catch (err) {
         console.error('Failed to load subscription status:', err)
-      })
+        setSubscription(null)
+      } finally {
+        setIsSubscriptionLoading(false)
+      }
     }
+    dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
 
     let targetPath = '/dashboard'
     if (role === 'super_admin') {
@@ -275,16 +278,20 @@ export function AuthProvider({ children }) {
     }
 
     const meRes = await axiosInstance.get('/auth/me/')
-    dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
-
     const role = meRes.data.role || meRes.data.user?.role
     if (role === 'company_admin' && meRes.data.company_status === 'approved') {
-      getSubscriptionStatus().then((subRes) => {
+      setIsSubscriptionLoading(true)
+      try {
+        const subRes = await getSubscriptionStatus()
         setSubscription(subRes.data)
-      }).catch((err) => {
+      } catch (err) {
         console.error('Failed to load subscription status:', err)
-      })
+        setSubscription(null)
+      } finally {
+        setIsSubscriptionLoading(false)
+      }
     }
+    dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
 
     let targetPath = '/dashboard'
     if (role === 'super_admin') {
@@ -332,16 +339,20 @@ export function AuthProvider({ children }) {
     }
 
     const meRes = await axiosInstance.get('/auth/me/')
-    dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
-
     const role = meRes.data.role || meRes.data.user?.role
     if (role === 'company_admin' && meRes.data.company_status === 'approved') {
-      getSubscriptionStatus().then((subRes) => {
+      setIsSubscriptionLoading(true)
+      try {
+        const subRes = await getSubscriptionStatus()
         setSubscription(subRes.data)
-      }).catch((err) => {
+      } catch (err) {
         console.error('Failed to load subscription status:', err)
-      })
+        setSubscription(null)
+      } finally {
+        setIsSubscriptionLoading(false)
+      }
     }
+    dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
 
     let targetPath = '/dashboard'
     if (role === 'super_admin') {

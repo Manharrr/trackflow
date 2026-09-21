@@ -3,6 +3,7 @@ import axiosInstance from '../../../api/axios';
 import { useChatContext } from '../context/ChatContext';
 import { CHAT_ACTIONS } from '../constants';
 import { ChatWebSocket } from '../utils/websocket';
+import { getWebSocketBaseUrl } from '../../../services/authSession';
 
 export function useChatSocket(conversationId) {
   const { state, dispatch } = useChatContext();
@@ -20,9 +21,8 @@ export function useChatSocket(conversationId) {
       return;
     }
 
-    const host = window.location.hostname;
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const socketUrl = `${protocol}://${host}:8000/ws/chat/conversations/${conversationId}/?token=${token}`;
+    const wsBaseUrl = getWebSocketBaseUrl(window);
+    const socketUrl = `${wsBaseUrl}/ws/chat/conversations/${conversationId}/?token=${token}`;
 
     const handleMessage = (data) => {
       if (data && data.id) {

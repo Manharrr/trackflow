@@ -5,6 +5,7 @@ import { getEmployeeProfile, updateEmployeeProfile } from './employees/services/
 import axiosInstance from '../../api/axios'
 import toast from 'react-hot-toast'
 import { User, Mail, Phone, Camera, Check, MapPin, PhoneCall, Briefcase, Award } from 'lucide-react'
+import { getApiBaseOrigin } from '../../services/authSession'
 
 export default function ProfilePage() {
   const { user } = useAuth()
@@ -40,8 +41,13 @@ export default function ProfilePage() {
           emergency_contact: empProfile.emergency_contact || '',
         })
         if (empProfile.profile_image) {
-          const API_HOST = window.location.hostname
-          setPhotoPreview(`http://${API_HOST}:8000${empProfile.profile_image}`)
+          const img = empProfile.profile_image
+          if (img.startsWith('http://') || img.startsWith('https://')) {
+            setPhotoPreview(img)
+          } else {
+            const apiOrigin = getApiBaseOrigin(window)
+            setPhotoPreview(`${apiOrigin}${img.startsWith('/') ? '' : '/'}${img}`)
+          }
         }
       } catch (err) {
         // Fallback to standard User model details if not an Employee

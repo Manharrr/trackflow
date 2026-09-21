@@ -3,18 +3,25 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { User, Settings, Lock, LogOut, ChevronDown } from 'lucide-react'
 import NotificationBell from '../notifications/NotificationBell'
+import { getApiBaseOrigin } from '../../services/authSession'
 
 export default function Header() {
   const { user, logout } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
 
-  const API_HOST = window.location.hostname
-  const tenantLogo = user?.tenant?.logo ? `http://${API_HOST}:8000${user.tenant.logo}` : null
+  const apiOrigin = getApiBaseOrigin(window)
+  const resolveAssetUrl = (path) => {
+    if (!path) return null
+    if (path.startsWith('http://') || path.startsWith('https://')) return path
+    return `${apiOrigin}${path.startsWith('/') ? '' : '/'}${path}`
+  }
+
+  const tenantLogo = resolveAssetUrl(user?.tenant?.logo)
   const tenantName = user?.tenant?.name || 'TrackFlow AI'
   const userEmail = user?.user?.email || ''
   const userRole = user?.role || 'Guest'
   const userFullName = user?.employee?.full_name || user?.user?.first_name || 'User Profile'
-  const userAvatar = user?.employee?.profile_image ? `http://${API_HOST}:8000${user.employee.profile_image}` : null
+  const userAvatar = resolveAssetUrl(user?.employee?.profile_image)
 
   return (
     <header className="h-20 bg-white/80 backdrop-blur-md border-b border-border-light/50 px-6 sm:px-8 flex items-center justify-between sticky top-0 z-30">

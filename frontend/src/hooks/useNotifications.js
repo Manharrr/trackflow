@@ -7,6 +7,7 @@ import {
   markNotificationAsRead as apiMarkAsRead,
   markAllNotificationsAsRead as apiMarkAllAsRead
 } from '../services/notificationApi';
+import { getWebSocketBaseUrl } from '../services/authSession';
 
 export function useNotifications() {
   const { user } = useAuth();
@@ -74,10 +75,9 @@ export function useNotifications() {
       return;
     }
 
-    const host = window.location.hostname;
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsBaseUrl = getWebSocketBaseUrl(window);
     // Dynamic WebSocket URL with token query param
-    const wsUrl = `${protocol}://${host}:8000/ws/notifications/?token=${token}`;
+    const wsUrl = `${wsBaseUrl}/ws/notifications/?token=${token}`;
 
     setConnectionStatus('connecting');
 

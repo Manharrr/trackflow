@@ -3,6 +3,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import axiosInstance from '../../api/axios'
 import toast from 'react-hot-toast'
 import { Building2, MapPin, FileText, Globe, DollarSign, Clock, Briefcase, Camera, Check } from 'lucide-react'
+import { getApiBaseOrigin } from '../../services/authSession'
 
 export default function SettingsPage() {
   const { user } = useAuth()
@@ -36,8 +37,13 @@ export default function SettingsPage() {
     if (user?.tenant) {
       setFormData(getInitialData())
       if (user.tenant.logo) {
-        const API_HOST = window.location.hostname
-        setLogoPreview(`http://${API_HOST}:8000${user.tenant.logo}`)
+        const logo = user.tenant.logo
+        if (logo.startsWith('http://') || logo.startsWith('https://')) {
+          setLogoPreview(logo)
+        } else {
+          const apiOrigin = getApiBaseOrigin(window)
+          setLogoPreview(`${apiOrigin}${logo.startsWith('/') ? '' : '/'}${logo}`)
+        }
       }
     }
   }, [user])

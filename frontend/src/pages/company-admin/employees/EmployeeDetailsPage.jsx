@@ -17,6 +17,7 @@ import {
   Shield 
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { getApiBaseOrigin } from "../../../services/authSession";
 
 export default function EmployeeDetailsPage() {
   const { employeeId } = useParams();
@@ -84,8 +85,11 @@ export default function EmployeeDetailsPage() {
     );
   }
 
-  const API_HOST = window.location.hostname;
-  const photoUrl = employee.profile_image ? `http://${API_HOST}:8000${employee.profile_image}` : null;
+  const photoUrl = employee.profile_image
+    ? (employee.profile_image.startsWith('http://') || employee.profile_image.startsWith('https://')
+      ? employee.profile_image
+      : `${getApiBaseOrigin(window)}${employee.profile_image.startsWith('/') ? '' : '/'}${employee.profile_image}`)
+    : null;
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 text-left animate-fade-in">
