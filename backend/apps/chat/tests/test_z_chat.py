@@ -3,7 +3,9 @@ from django.db import connection
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 from rest_framework import status
-from apps.tenants.models import Client, UserTenant
+from django_tenants.utils import schema_context
+
+from apps.tenants.models import Client, Domain, UserTenant
 from apps.employees.models.employee import Employee, Role
 from apps.chat.models.conversation import Conversation
 from apps.chat.models.message import Message, MessageType
@@ -18,7 +20,7 @@ class ChatFlowTestCase(TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # 1. Create a isolated client tenant for chat tests
+        # 1. Create an isolated client tenant for chat tests
         cls.tenant, _ = Client.objects.get_or_create(
             schema_name="chatschema",
             defaults={
@@ -31,9 +33,8 @@ class ChatFlowTestCase(TestCase):
         )
 
         # 2. Create the associated domain record
-        from apps.tenants.models import Domain
         cls.domain, _ = Domain.objects.get_or_create(
-            domain="chatschema.test.com",
+            domain="chatschema.manhargurukkal.site",
             tenant=cls.tenant,
             defaults={"is_primary": True}
         )
@@ -50,15 +51,13 @@ class ChatFlowTestCase(TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        from django.db import connection
         connection.set_schema_to_public()
+        Domain.objects.filter(domain="chatschema.manhargurukkal.site").delete()
         super().tearDownClass()
 
     def setUp(self):
         super().setUp()
-        # Set active tenant context on the database connection
         connection.set_tenant(self.tenant)
-        # Force the search path to lookup from both the chat test schema and public tables
         with connection.cursor() as cursor:
             cursor.execute("SET search_path TO chatschema, public")
 
@@ -77,31 +76,36 @@ class ChatFlowTestCase(TestCase):
         )
 
         # Map users to tenant client
-        UserTenant.objects.create(user=self.admin_user, tenant=self.tenant)
-        UserTenant.objects.create(user=self.manager_user, tenant=self.tenant)
-        UserTenant.objects.create(user=self.driver_user, tenant=self.tenant)
-        UserTenant.objects.create(user=self.other_driver_user, tenant=self.tenant)
+        self.ut_admin = UserTenant.objects.create(user=self.admin_user, tenant=self.tenant, is_active=True)
+        self.ut_manager = UserTenant.objects.create(user=self.manager_user, tenant=self.tenant, is_active=True)
+        self.ut_driver = UserTenant.objects.create(user=self.driver_user, tenant=self.tenant, is_active=True)
+        self.ut_other_driver = UserTenant.objects.create(user=self.other_driver_user, tenant=self.tenant, is_active=True)
 
         # Create active employee profiles inside tenant schema
-        self.admin_emp = Employee.objects.create(
-            user=self.admin_user, tenant=self.tenant, role=Role.COMPANY_ADMIN,
-            full_name="Admin User", email=self.admin_user.email, phone="111"
-        )
-        self.manager_emp = Employee.objects.create(
-            user=self.manager_user, tenant=self.tenant, role=Role.OPERATIONS_MANAGER,
-            full_name="Manager User", email=self.manager_user.email, phone="222"
-        )
-        self.driver_emp = Employee.objects.create(
-            user=self.driver_user, tenant=self.tenant, role=Role.EMPLOYEE,
-            full_name="Driver User", email=self.driver_user.email, phone="333",
-            manager=self.manager_emp
-        )
-        self.other_driver_emp = Employee.objects.create(
-            user=self.other_driver_user, tenant=self.tenant, role=Role.EMPLOYEE,
-            full_name="Other Driver User", email=self.other_driver_user.email, phone="444"
-        )
+        with schema_context(self.tenant.schema_name):
+            self.admin_emp = Employee.objects.create(
+                user=self.admin_user, tenant=self.tenant, role=Role.COMPANY_ADMIN,
+                full_name="Admin User", email=self.admin_user.email, phone="111"
+            )
+            self.manager_emp = Employee.objects.create(
+                user=self.manager_user, tenant=self.tenant, role=Role.OPERATIONS_MANAGER,
+                full_name="Manager User", email=self.manager_user.email, phone="222"
+            )
+            self.driver_emp = Employee.objects.create(
+                user=self.driver_user, tenant=self.tenant, role=Role.EMPLOYEE,
+                full_name="Driver User", email=self.driver_user.email, phone="333",
+                manager=self.manager_emp
+            )
+            self.other_driver_emp = Employee.objects.create(
+                user=self.other_driver_user, tenant=self.tenant, role=Role.EMPLOYEE,
+                full_name="Other Driver User", email=self.other_driver_user.email, phone="444"
+            )
 
         self.client = APIClient()
+
+    def tearDown(self):
+        connection.set_tenant(self.tenant)
+        super().tearDown()
 
     def test_conversation_creation_role_restrictions(self):
         # Admin can chat with anyone
@@ -148,12 +152,12 @@ class ChatFlowTestCase(TestCase):
 
     def test_chat_rest_api_endpoints(self):
         self.client.force_authenticate(user=self.admin_user)
-        domain = self.tenant.domains.first().domain
+        domain = self.domain.domain
 
         # Create conversation via REST POST
         response = self.client.post(
             "/api/chat/conversations/create/",
-            {"participant_id": self.driver_user.id},
+            {"participant_id": str(self.driver_emp.id)},
             format="json",
             HTTP_HOST=domain
         )
@@ -191,13 +195,69 @@ class ChatFlowTestCase(TestCase):
         self.assertEqual(response_msgs.status_code, status.HTTP_200_OK)
         self.assertEqual(response_msgs.data["count"], 1)
 
+    def test_chat_api_via_public_api_host_and_alias(self):
+        """
+        Tests accessing chat via api.manhargurukkal.site and /api/conversations/
+        """
+        self.client.force_authenticate(user=self.admin_user)
+        public_host = "api.manhargurukkal.site"
+
+        # Create conversation via /api/conversations/create/ on public host
+        res_create = self.client.post(
+            "/api/conversations/create/",
+            {"participant_id": str(self.driver_emp.id)},
+            format="json",
+            HTTP_HOST=public_host
+        )
+        self.assertIn(res_create.status_code, [status.HTTP_200_OK, status.HTTP_201_CREATED])
+        conversation_id = res_create.data["id"]
+
+        # List conversations via /api/conversations/
+        res_list = self.client.get(
+            "/api/conversations/",
+            format="json",
+            HTTP_HOST=public_host
+        )
+        self.assertEqual(res_list.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(res_list.data), 1)
+
+        # List conversations via /api/chat/conversations/
+        res_chat_list = self.client.get(
+            "/api/chat/conversations/",
+            format="json",
+            HTTP_HOST=public_host
+        )
+        self.assertEqual(res_chat_list.status_code, status.HTTP_200_OK)
+
+        # Post message via /api/chat/messages/
+        res_msg = self.client.post(
+            "/api/chat/messages/",
+            {
+                "conversation_id": conversation_id,
+                "message": "Hello through public API host!",
+                "message_type": "text",
+            },
+            format="json",
+            HTTP_HOST=public_host
+        )
+        self.assertEqual(res_msg.status_code, status.HTTP_201_CREATED)
+
+        # Get messages via /api/conversations/{id}/messages/
+        res_msgs = self.client.get(
+            f"/api/conversations/{conversation_id}/messages/",
+            format="json",
+            HTTP_HOST=public_host
+        )
+        self.assertEqual(res_msgs.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(res_msgs.data["count"], 1)
+
     def test_websocket_channels_middleware_authentication(self):
         from rest_framework_simplejwt.tokens import AccessToken
         token = str(AccessToken.for_user(self.admin_user))
 
         scope = {
             "type": "websocket",
-            "headers": [(b"host", b"chatschema.test.com")],
+            "headers": [(b"host", b"chatschema.manhargurukkal.site")],
             "query_string": f"token={token}".encode("utf-8"),
         }
 
@@ -217,7 +277,7 @@ class ChatFlowTestCase(TestCase):
 
         scope = {
             "type": "websocket",
-            "headers": [(b"host", b"chatschema.test.com")],
+            "headers": [(b"host", b"chatschema.manhargurukkal.site")],
             "query_string": f"token={token}".encode("utf-8"),
             "url_route": {"kwargs": {"conversation_id": str(conv.id)}},
         }
@@ -232,10 +292,9 @@ class ChatFlowTestCase(TestCase):
 
         unauthorized_scope = {
             "type": "websocket",
-            "headers": [(b"host", b"chatschema.test.com")],
+            "headers": [(b"host", b"chatschema.manhargurukkal.site")],
             "query_string": f"token={fake_token}".encode("utf-8"),
         }
 
         tenant, user = get_tenant_and_user.func(unauthorized_scope)
         self.assertTrue(user.is_anonymous)
-

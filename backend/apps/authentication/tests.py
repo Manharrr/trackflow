@@ -48,7 +48,10 @@ class AuthenticationRegressionTests(TenantTestCase):
     @classmethod
     def setUpClass(cls):
         connection.set_schema_to_public()
-        Domain.objects.filter(domain="tenant.test.com").delete()
+        with connection.cursor() as cursor:
+            cursor.execute("DROP SCHEMA IF EXISTS logesticgo CASCADE")
+            cursor.execute("DELETE FROM tenants_domain WHERE domain IN ('tenant.test.com', 'logesticgo.manhargurukkal.site')")
+            cursor.execute("DELETE FROM tenants_client WHERE schema_name = 'logesticgo'")
         super().setUpClass()
         # Explicitly create schema and run tenant migrations since auto_create_schema is False on Client
         cls.tenant.create_schema(check_if_exists=True)

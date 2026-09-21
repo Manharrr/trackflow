@@ -34,6 +34,8 @@ urlpatterns = [
     path("operations-dashboard/leaderboard/", OperationsLeaderboardAPIView.as_view(), name="operations-leaderboard"),
     path("operations-dashboard/charts/", OperationsChartsAPIView.as_view(), name="operations-charts"),
     path("operations-dashboard/assignable-partners/", OperationsAssignablePartnersAPIView.as_view(), name="operations-assignable-partners"),
+    path("team-overview/", OperationsTeamOverviewAPIView.as_view(), name="orders-team-overview"),
+    path("leaderboard/", OperationsLeaderboardAPIView.as_view(), name="orders-leaderboard"),
 
     path("<uuid:order_id>/", OrderDetailAPIView.as_view(), name="order-detail"),
     path("<uuid:order_id>/restore/", OrderRestoreAPIView.as_view(), name="order-restore"),

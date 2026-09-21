@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.core.exceptions import ValidationError
+from django_tenants.utils import schema_context
 from apps.accounts.serializers import UserSerializer
 from apps.accounts.models import User
 from apps.chat.models.conversation import Conversation
@@ -21,10 +22,10 @@ class ChatUserSerializer(serializers.ModelSerializer):
                 from apps.tenants.models import Client
                 if isinstance(tenant, Client):
                     from apps.employees.models import Employee
-                    emp = Employee.objects.filter(user=obj, tenant=tenant).first()
-                    return emp.role if emp else None
+                    with schema_context(tenant.schema_name):
+                        emp = Employee.objects.filter(user=obj, tenant=tenant).first()
+                        return emp.role if emp else None
         return None
-
 
 
 class ConversationSerializer(serializers.ModelSerializer):
@@ -50,21 +51,32 @@ class ConversationSerializer(serializers.ModelSerializer):
         ]
 
     def get_last_message(self, obj):
+        request = self.context.get("request")
+        tenant = getattr(request, "tenant", None) if request else getattr(obj, "tenant", None)
+        if tenant and hasattr(tenant, "schema_name"):
+            with schema_context(tenant.schema_name):
+                last_msg = MessageService.get_last_message(obj)
+                return last_msg.message if last_msg else None
         last_msg = MessageService.get_last_message(obj)
-        if last_msg:
-            # If soft deleted, it is already filtered out by active manager
-            return last_msg.message
-        return None
+        return last_msg.message if last_msg else None
 
     def get_last_message_time(self, obj):
+        request = self.context.get("request")
+        tenant = getattr(request, "tenant", None) if request else getattr(obj, "tenant", None)
+        if tenant and hasattr(tenant, "schema_name"):
+            with schema_context(tenant.schema_name):
+                last_msg = MessageService.get_last_message(obj)
+                return last_msg.created_at if last_msg else None
         last_msg = MessageService.get_last_message(obj)
-        if last_msg:
-            return last_msg.created_at
-        return None
+        return last_msg.created_at if last_msg else None
 
     def get_unread_count(self, obj):
         request = self.context.get("request")
         if request and request.user:
+            tenant = getattr(request, "tenant", None) or getattr(obj, "tenant", None)
+            if tenant and hasattr(tenant, "schema_name"):
+                with schema_context(tenant.schema_name):
+                    return MessageService.get_unread_count(obj, request.user)
             return MessageService.get_unread_count(obj, request.user)
         return 0
 
@@ -78,12 +90,18 @@ class ConversationCreateSerializer(serializers.Serializer):
         from apps.employees.models.employee import Employee
         
         User = get_user_model()
-        
+        request = self.context.get("request")
+        tenant = getattr(request, "tenant", None) if request else None
+
         # 1. Try resolving as Employee UUID
         try:
             val_uuid = uuid.UUID(str(value))
             try:
-                employee = Employee.objects.select_related("user").get(id=val_uuid)
+                if tenant and hasattr(tenant, "schema_name"):
+                    with schema_context(tenant.schema_name):
+                        employee = Employee.objects.select_related("user").get(id=val_uuid)
+                else:
+                    employee = Employee.objects.select_related("user").get(id=val_uuid)
                 return employee.user
             except Employee.DoesNotExist:
                 raise serializers.ValidationError("Target employee participant not found.")
@@ -110,7 +128,6 @@ class ConversationCreateSerializer(serializers.Serializer):
             ConversationService.validate_tenant(tenant, user, participant)
             ConversationService.validate_roles(tenant, user, participant)
         except ValidationError as e:
-            # Propagate core ValidationError messages directly
             msg = e.messages[0] if hasattr(e, "messages") else str(e)
             raise serializers.ValidationError(msg)
 

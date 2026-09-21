@@ -554,5 +554,76 @@ class OrdersTestCase(TenantTestCase):
         res = client.get(reverse("order-dashboard"), HTTP_HOST="api.manhargurukkal.site")
         self.assertEqual(res.status_code, 200)
 
+    def tearDown(self):
+        from django.db import connection
+        connection.set_tenant(self.tenant)
+        super().tearDown()
+
+    def test_orders_list_search_via_public_api_host(self):
+        """Regression Test: GET /api/orders/?search=... on api.manhargurukkal.site returns 200."""
+        from apps.orders.models.order import Order
+        from django_tenants.utils import schema_context
+
+        with schema_context(self.tenant.schema_name):
+            Order.objects.create(
+                company=self.tenant,
+                tracking_id="TRK-SEARCH-101",
+                customer_name="Alice Smith",
+                customer_phone="9876543210",
+                pickup_address="Origin A",
+                delivery_address="Destination A",
+                assigned_by=self.admin_user,
+            )
+            Order.objects.create(
+                company=self.tenant,
+                tracking_id="TRK-OTHER-202",
+                customer_name="Bob Jones",
+                customer_phone="1234567890",
+                pickup_address="Origin B",
+                delivery_address="Destination B",
+                assigned_by=self.admin_user,
+            )
+
+        client = APIClient()
+        client.force_authenticate(user=self.admin_user)
+        res = client.get("/api/orders/?search=Alice", HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res.status_code, 200)
+        results = res.data.get("results", res.data)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["tracking_id"], "TRK-SEARCH-101")
+
+    def test_operations_dashboard_leaderboard_via_public_api_host(self):
+        """Regression Test: GET /api/orders/operations-dashboard/leaderboard/ and /api/leaderboard/ return 200."""
+        client = APIClient()
+        client.force_authenticate(user=self.admin_user)
+
+        res_full = client.get("/api/orders/operations-dashboard/leaderboard/", HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res_full.status_code, 200)
+
+        res_alias = client.get("/api/leaderboard/", HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res_alias.status_code, 200)
+
+    def test_operations_dashboard_team_overview_via_public_api_host(self):
+        """Regression Test: GET /api/orders/operations-dashboard/team-overview/ and /api/team-overview/ return 200."""
+        client = APIClient()
+        client.force_authenticate(user=self.admin_user)
+
+        res_full = client.get("/api/orders/operations-dashboard/team-overview/", HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res_full.status_code, 200)
+
+        res_alias = client.get("/api/team-overview/", HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res_alias.status_code, 200)
+
+    def test_non_manager_rejected_403_on_operations_dashboard(self):
+        """Regular employee is forbidden from viewing operations dashboard metrics."""
+        client = APIClient()
+        client.force_authenticate(user=self.driver_user)
+
+        res_lb = client.get("/api/orders/operations-dashboard/leaderboard/", HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res_lb.status_code, 403)
+
+        res_team = client.get("/api/orders/operations-dashboard/team-overview/", HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res_team.status_code, 403)
+
 
 

@@ -29,8 +29,20 @@ urlpatterns = [
     path("api/orders/", include("apps.orders.urls")),
     path("api/passwords/", include("apps.passwords.urls")),
     path("api/chat/", include("apps.chat.urls")),
+    path("api/conversations/", include([
+        path("", __import__("apps.chat.views", fromlist=["ConversationListAPIView"]).ConversationListAPIView.as_view(), name="root-conversations-list"),
+        path("create/", __import__("apps.chat.views", fromlist=["ConversationCreateAPIView"]).ConversationCreateAPIView.as_view(), name="root-conversations-create"),
+        path("<uuid:pk>/", __import__("apps.chat.views", fromlist=["ConversationDetailAPIView"]).ConversationDetailAPIView.as_view(), name="root-conversations-detail"),
+        path("<uuid:conversation_id>/messages/", __import__("apps.chat.views", fromlist=["MessageListAPIView"]).MessageListAPIView.as_view(), name="root-conversations-messages"),
+    ])),
     path("api/notifications/", include("apps.notifications.urls")),
     path("api/", include("apps.ai_chat.urls")),
+    path("api/team-overview/", include([
+        path("", __import__("apps.orders.views.operations_views", fromlist=["OperationsTeamOverviewAPIView"]).OperationsTeamOverviewAPIView.as_view(), name="root-team-overview"),
+    ])),
+    path("api/leaderboard/", include([
+        path("", __import__("apps.orders.views.operations_views", fromlist=["OperationsLeaderboardAPIView"]).OperationsLeaderboardAPIView.as_view(), name="root-leaderboard"),
+    ])),
 ]
 
 if settings.DEBUG:

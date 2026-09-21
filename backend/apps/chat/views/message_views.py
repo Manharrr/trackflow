@@ -2,6 +2,10 @@ from rest_framework import status, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import LimitOffsetPagination
+from django_tenants.utils import schema_context
+
+from apps.tenants.models import Client
+from apps.tenants.utils import resolve_request_tenant
 from apps.chat.models.conversation import Conversation
 from apps.chat.permissions.chat_permissions import IsConversationParticipant
 from apps.chat.serializers.message_serializer import (
@@ -12,6 +16,14 @@ from apps.chat.serializers.message_serializer import (
 from apps.chat.services.message_service import MessageService
 
 
+def _resolve_chat_tenant(request):
+    tenant = getattr(request, "tenant", None) or resolve_request_tenant(request)
+    if not tenant or not isinstance(tenant, Client):
+        return None
+    request.tenant = tenant
+    return tenant
+
+
 class MessageListAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsConversationParticipant]
 
@@ -19,25 +31,32 @@ class MessageListAPIView(APIView):
         """
         Retrieves paginated messages in a conversation.
         """
-        tenant = request.tenant
-        try:
-            conversation = Conversation.objects.get(id=conversation_id, tenant=tenant)
-        except Conversation.DoesNotExist:
-            return Response({"detail": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND)
+        tenant = _resolve_chat_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "Tenant context could not be resolved."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        # Check object level permissions explicitly
-        self.check_object_permissions(request, conversation)
+        with schema_context(tenant.schema_name):
+            try:
+                conversation = Conversation.objects.get(id=conversation_id, tenant=tenant)
+            except Conversation.DoesNotExist:
+                return Response({"detail": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        messages = MessageService.get_messages(conversation)
+            # Check object level permissions explicitly
+            self.check_object_permissions(request, conversation)
 
-        # Implement DRF LimitOffsetPagination
-        paginator = LimitOffsetPagination()
-        paginator.default_limit = 50
-        paginator.max_limit = 100
-        page = paginator.paginate_queryset(messages, request, view=self)
+            messages = MessageService.get_messages(conversation)
 
-        serializer = MessageSerializer(page, many=True, context={"request": request})
-        return paginator.get_paginated_response(serializer.data)
+            # Implement DRF LimitOffsetPagination
+            paginator = LimitOffsetPagination()
+            paginator.default_limit = 50
+            paginator.max_limit = 100
+            page = paginator.paginate_queryset(messages, request, view=self)
+
+            serializer = MessageSerializer(page, many=True, context={"request": request})
+            return paginator.get_paginated_response(serializer.data)
 
 
 class MessageCreateAPIView(APIView):
@@ -47,22 +66,30 @@ class MessageCreateAPIView(APIView):
         """
         Sends a new message inside a conversation.
         """
-        serializer = MessageCreateSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
+        tenant = _resolve_chat_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "Tenant context could not be resolved."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        conversation = serializer.validated_data["conversation_id"]
-        message_text = serializer.validated_data["message"]
-        message_type = serializer.validated_data["message_type"]
+        with schema_context(tenant.schema_name):
+            serializer = MessageCreateSerializer(data=request.data, context={"request": request})
+            serializer.is_valid(raise_exception=True)
 
-        message = MessageService.create_message(
-            conversation=conversation,
-            sender=request.user,
-            message=message_text,
-            message_type=message_type,
-        )
+            conversation = serializer.validated_data["conversation_id"]
+            message_text = serializer.validated_data["message"]
+            message_type = serializer.validated_data["message_type"]
 
-        response_serializer = MessageSerializer(message, context={"request": request})
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+            message = MessageService.create_message(
+                conversation=conversation,
+                sender=request.user,
+                message=message_text,
+                message_type=message_type,
+            )
+
+            response_serializer = MessageSerializer(message, context={"request": request})
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 class MarkMessageReadAPIView(APIView):
@@ -72,18 +99,26 @@ class MarkMessageReadAPIView(APIView):
         """
         Marks all incoming messages in a conversation as read.
         """
-        serializer = MessageReadSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
+        tenant = _resolve_chat_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "Tenant context could not be resolved."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        conversation = serializer.validated_data["conversation_id"]
-        
-        # Call service to mark read status
-        updated_count = MessageService.mark_as_read(conversation, request.user)
+        with schema_context(tenant.schema_name):
+            serializer = MessageReadSerializer(data=request.data, context={"request": request})
+            serializer.is_valid(raise_exception=True)
 
-        return Response(
-            {
-                "message": "Messages marked as read successfully.",
-                "updated_count": updated_count
-            },
-            status=status.HTTP_200_OK
-        )
+            conversation = serializer.validated_data["conversation_id"]
+            
+            # Call service to mark read status
+            updated_count = MessageService.mark_as_read(conversation, request.user)
+
+            return Response(
+                {
+                    "message": "Messages marked as read successfully.",
+                    "updated_count": updated_count
+                },
+                status=status.HTTP_200_OK
+            )

@@ -2,6 +2,10 @@ from django.db.models import Q
 from rest_framework import status, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from django_tenants.utils import schema_context
+
+from apps.tenants.models import Client
+from apps.tenants.utils import resolve_request_tenant
 from apps.chat.models.conversation import Conversation
 from apps.chat.permissions.chat_permissions import IsConversationParticipant
 from apps.chat.serializers.conversation_serializer import (
@@ -11,6 +15,14 @@ from apps.chat.serializers.conversation_serializer import (
 from apps.chat.services.conversation_service import ConversationService
 
 
+def _resolve_chat_tenant(request):
+    tenant = getattr(request, "tenant", None) or resolve_request_tenant(request)
+    if not tenant or not isinstance(tenant, Client):
+        return None
+    request.tenant = tenant
+    return tenant
+
+
 class ConversationListAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -18,19 +30,26 @@ class ConversationListAPIView(APIView):
         """
         Lists all conversations for the authenticated user inside this tenant.
         """
-        tenant = request.tenant
-        user = request.user
+        tenant = _resolve_chat_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "Tenant context could not be resolved."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        # Query and pre-fetch participant profiles to prevent N+1 queries
-        conversations = Conversation.objects.filter(
-            tenant=tenant,
-            is_active=True
-        ).filter(
-            Q(participant_one=user) | Q(participant_two=user)
-        ).select_related("participant_one", "participant_two", "created_by")
+        with schema_context(tenant.schema_name):
+            user = request.user
 
-        serializer = ConversationSerializer(conversations, many=True, context={"request": request})
-        return Response(serializer.data, status=status.HTTP_200_OK)
+            # Query and pre-fetch participant profiles to prevent N+1 queries
+            conversations = Conversation.objects.filter(
+                tenant=tenant,
+                is_active=True
+            ).filter(
+                Q(participant_one=user) | Q(participant_two=user)
+            ).select_related("participant_one", "participant_two", "created_by")
+
+            serializer = ConversationSerializer(conversations, many=True, context={"request": request})
+            return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class ConversationCreateAPIView(APIView):
@@ -40,24 +59,31 @@ class ConversationCreateAPIView(APIView):
         """
         Creates or retrieves a conversation with a target participant.
         """
-        serializer = ConversationCreateSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
+        tenant = _resolve_chat_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "Tenant context could not be resolved."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        tenant = request.tenant
-        user = request.user
-        participant = serializer.validated_data["participant_two"]
+        with schema_context(tenant.schema_name):
+            serializer = ConversationCreateSerializer(data=request.data, context={"request": request})
+            serializer.is_valid(raise_exception=True)
 
-        # Call Service Layer to handle lookup or creation validations
-        conversation, created = ConversationService.get_or_create_conversation(
-            tenant=tenant,
-            participant_one=user,
-            participant_two=participant,
-            created_by=user,
-        )
+            user = request.user
+            participant = serializer.validated_data["participant_two"]
 
-        response_serializer = ConversationSerializer(conversation, context={"request": request})
-        status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
-        return Response(response_serializer.data, status=status_code)
+            # Call Service Layer to handle lookup or creation validations
+            conversation, created = ConversationService.get_or_create_conversation(
+                tenant=tenant,
+                participant_one=user,
+                participant_two=participant,
+                created_by=user,
+            )
+
+            response_serializer = ConversationSerializer(conversation, context={"request": request})
+            status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+            return Response(response_serializer.data, status=status_code)
 
 
 class ConversationDetailAPIView(APIView):
@@ -67,41 +93,55 @@ class ConversationDetailAPIView(APIView):
         """
         Retrieves details of a specific conversation.
         """
-        tenant = request.tenant
-        try:
-            conversation = Conversation.objects.select_related(
-                "participant_one", "participant_two", "created_by"
-            ).get(id=pk, tenant=tenant)
-        except Conversation.DoesNotExist:
-            return Response({"detail": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND)
+        tenant = _resolve_chat_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "Tenant context could not be resolved."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        # Check object level permissions explicitly
-        self.check_object_permissions(request, conversation)
+        with schema_context(tenant.schema_name):
+            try:
+                conversation = Conversation.objects.select_related(
+                    "participant_one", "participant_two", "created_by"
+                ).get(id=pk, tenant=tenant)
+            except Conversation.DoesNotExist:
+                return Response({"detail": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        serializer = ConversationSerializer(conversation, context={"request": request})
-        return Response(serializer.data, status=status.HTTP_200_OK)
+            # Check object level permissions explicitly
+            self.check_object_permissions(request, conversation)
+
+            serializer = ConversationSerializer(conversation, context={"request": request})
+            return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class ChatDirectoryAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        from apps.employees.models import Employee
-        tenant = request.tenant
-        
-        # Search query filter
-        search_query = request.query_params.get("search", "").strip()
-        
-        queryset = Employee.objects.filter(tenant=tenant, is_active=True).exclude(user=request.user)
-        if search_query:
-            queryset = queryset.filter(full_name__icontains=search_query)
+        tenant = _resolve_chat_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "Tenant context could not be resolved."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with schema_context(tenant.schema_name):
+            from apps.employees.models import Employee
             
-        data = []
-        for emp in queryset[:50]:  # Limit to 50 results
-            data.append({
-                "id": str(emp.id),
-                "full_name": emp.full_name,
-                "role": emp.role,
-                "email": emp.email,
-            })
-        return Response({"results": data})
+            # Search query filter
+            search_query = request.query_params.get("search", "").strip()
+            
+            queryset = Employee.objects.filter(tenant=tenant, is_active=True).exclude(user=request.user)
+            if search_query:
+                queryset = queryset.filter(full_name__icontains=search_query)
+                
+            data = []
+            for emp in queryset[:50]:  # Limit to 50 results
+                data.append({
+                    "id": str(emp.id),
+                    "full_name": emp.full_name,
+                    "role": emp.role,
+                    "email": emp.email,
+                })
+            return Response({"results": data})

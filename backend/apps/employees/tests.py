@@ -474,3 +474,21 @@ class EmployeeOnboardingFlowTestCase(TenantTestCase):
         res = client.post(create_url, payload, HTTP_HOST="api.manhargurukkal.site")
         self.assertEqual(res.status_code, 201)
         self.assertEqual(res.data["data"]["email"], "superonboarded@trackflow.test")
+
+    def tearDown(self):
+        from django.db import connection
+        connection.set_tenant(self.tenant)
+        super().tearDown()
+
+    def test_employee_list_via_public_api_host(self):
+        """Regression Test: GET /api/employees/?page=1 on api.manhargurukkal.site returns 200."""
+        from rest_framework.test import APIClient
+        from django.urls import reverse
+
+        client = APIClient()
+        client.force_authenticate(user=self.admin_user)
+        list_url = reverse("employee-list")
+        res = client.get(f"{list_url}?page=1", HTTP_HOST="api.manhargurukkal.site")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("results", res.data)
+        self.assertGreaterEqual(len(res.data["results"]), 1)
