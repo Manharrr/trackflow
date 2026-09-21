@@ -1,4 +1,5 @@
-from apps.tenants.models import Client, UserTenant
+from urllib.parse import urlsplit
+from apps.tenants.models import Client, Domain, UserTenant
 
 
 def resolve_request_tenant(request):
@@ -64,4 +65,69 @@ def resolve_request_tenant(request):
         return user_tenant.tenant
 
     return None
+
+
+def resolve_tenant_from_request_origin(request):
+    """
+    Resolves the active tenant (Client instance) from request origin/headers
+    for unauthenticated or public-host endpoints.
+
+    Resolution strategy:
+    1. First use request.tenant if it is already a valid Client instance.
+    2. Inspect HTTP Origin header.
+    3. Referer as fallback if Origin is absent.
+    4. Parse hostname safely via urllib.parse.urlsplit.
+    5. Resolve hostname against the public Domain table (O(1)).
+    6. Subdomain fallback needed for development (*.localhost, etc.).
+    7. Never scans all tenant schemas; never uses raw SQL.
+    8. Return None if hostname cannot resolve to a valid Client.
+    """
+    # 1. First use request.tenant if it is already a valid Client
+    tenant = getattr(request, "tenant", None)
+    if tenant and isinstance(tenant, Client):
+        return tenant
+
+    # 2. Otherwise inspect Origin
+    candidate = None
+    if hasattr(request, "headers") and request.headers.get("origin"):
+        candidate = request.headers.get("origin")
+    elif hasattr(request, "META") and request.META.get("HTTP_ORIGIN"):
+        candidate = request.META.get("HTTP_ORIGIN")
+
+    # 3. Then Referer as fallback
+    if not candidate:
+        if hasattr(request, "headers") and request.headers.get("referer"):
+            candidate = request.headers.get("referer")
+        elif hasattr(request, "META") and request.META.get("HTTP_REFERER"):
+            candidate = request.META.get("HTTP_REFERER")
+
+    if not candidate:
+        return None
+
+    candidate_str = str(candidate).strip()
+    try:
+        parsed = urlsplit(candidate_str)
+        host = (parsed.hostname or candidate_str.split("/")[0]).split(":")[0].strip().lower()
+    except Exception:
+        host = candidate_str.split(":")[0].strip().lower()
+
+    if not host:
+        return None
+
+    # 4. Resolve the hostname against the public Domain table
+    domain_obj = Domain.objects.select_related("tenant").filter(domain=host).first()
+    if domain_obj and domain_obj.tenant and isinstance(domain_obj.tenant, Client):
+        return domain_obj.tenant
+
+    # 5. Keep the existing localhost/subdomain fallback needed for development
+    parts = host.split(".")
+    if len(parts) >= 2:
+        subdomain = parts[0]
+        if subdomain and subdomain not in ("api", "www", "localhost", "127"):
+            client = Client.objects.filter(schema_name=subdomain).first()
+            if client and isinstance(client, Client):
+                return client
+
+    return None
+
 

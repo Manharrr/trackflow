@@ -581,3 +581,232 @@ class EmployeeOnboardingFlowTestCase(TenantTestCase):
         self.assertNotIn("Bearer", sent_email.body)
         self.assertNotIn("auth_transfer", sent_email.body)
         self.assertIn(f"/activate-account/{activation.token}", sent_email.body)
+
+    def test_resolve_tenant_from_request_origin_production(self):
+        """1. Production Origin (https://logesticgo.manhargurukkal.site) resolves to logesticgo Client."""
+        from django.test import RequestFactory
+        from django_tenants.utils import schema_context
+        from apps.tenants.utils import resolve_tenant_from_request_origin
+
+        with schema_context("public"):
+            logesticgo_client, _ = Client.objects.get_or_create(
+                schema_name="logesticgo",
+                defaults={"name": "LogesticGo", "email": "info@logesticgo.com", "phone": "1234567890", "status": "approved"}
+            )
+            Domain.objects.get_or_create(
+                domain="logesticgo.manhargurukkal.site",
+                tenant=logesticgo_client,
+                defaults={"is_primary": True}
+            )
+
+        factory = RequestFactory()
+        req = factory.post("/api/employees/verify/", HTTP_ORIGIN="https://logesticgo.manhargurukkal.site")
+        resolved = resolve_tenant_from_request_origin(req)
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved.schema_name, "logesticgo")
+
+    def test_resolve_tenant_from_request_origin_localhost(self):
+        """2. Localhost Origin (http://logesticgo.localhost:5173) resolves to logesticgo Client."""
+        from django.test import RequestFactory
+        from django_tenants.utils import schema_context
+        from apps.tenants.utils import resolve_tenant_from_request_origin
+
+        with schema_context("public"):
+            logesticgo_client, _ = Client.objects.get_or_create(
+                schema_name="logesticgo",
+                defaults={"name": "LogesticGo", "email": "info@logesticgo.com", "phone": "1234567890", "status": "approved"}
+            )
+
+        factory = RequestFactory()
+        req = factory.post("/api/employees/verify/", HTTP_ORIGIN="http://logesticgo.localhost:5173")
+        resolved = resolve_tenant_from_request_origin(req)
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved.schema_name, "logesticgo")
+
+    def test_resolve_tenant_from_request_origin_unknown_rejected(self):
+        """3. Unknown / untrusted Origin is rejected (returns None)."""
+        from django.test import RequestFactory
+        from apps.tenants.utils import resolve_tenant_from_request_origin
+
+        factory = RequestFactory()
+        # Non-existent tenant
+        req1 = factory.post("/api/employees/verify/", HTTP_ORIGIN="https://unknown.manhargurukkal.site")
+        self.assertIsNone(resolve_tenant_from_request_origin(req1))
+
+        # Attacker / arbitrary domain
+        req2 = factory.post("/api/employees/verify/", HTTP_ORIGIN="https://evil-attacker.com")
+        self.assertIsNone(resolve_tenant_from_request_origin(req2))
+
+        # Bare public host (api / www)
+        req3 = factory.post("/api/employees/verify/", HTTP_ORIGIN="https://api.manhargurukkal.site")
+        self.assertIsNone(resolve_tenant_from_request_origin(req3))
+
+    def test_verify_activation_api_success_in_tenant_schema(self):
+        """4. /api/employees/verify/ successfully finds an activation token in the correct tenant schema."""
+        from rest_framework.test import APIClient
+        from django_tenants.utils import schema_context
+
+        with schema_context("public"):
+            Domain.objects.get_or_create(
+                domain=f"{self.tenant.schema_name}.manhargurukkal.site",
+                tenant=self.tenant,
+                defaults={"is_primary": True}
+            )
+
+        emp_user = User.objects.create_user(
+            username="verify_emp@trackflow.test",
+            email="verify_emp@trackflow.test",
+            phone="8880001122",
+            password="temppassword123",
+        )
+        emp_user.is_verified = False
+        emp_user.save()
+
+        with schema_context(self.tenant.schema_name):
+            activation = AccountActivation.objects.create(
+                user=emp_user,
+                expires_at=timezone.now() + timezone.timedelta(hours=48)
+            )
+
+        client = APIClient()
+        res = client.post(
+            "/api/employees/verify/",
+            {"token": str(activation.token)},
+            HTTP_HOST="api.manhargurukkal.site",
+            HTTP_ORIGIN=f"https://{self.tenant.schema_name}.manhargurukkal.site",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["message"], "Activation token is valid.")
+        self.assertEqual(res.data["email"], "verify_emp@trackflow.test")
+
+    def test_verify_activation_api_rejects_cross_tenant_token(self):
+        """5. /api/employees/verify/ does NOT find a token from another tenant when Origin points to the wrong tenant."""
+        from rest_framework.test import APIClient
+        from django_tenants.utils import schema_context
+        from django.core.management import call_command
+
+        with schema_context("public"):
+            other_tenant = Client.objects.create(
+                schema_name="tenant_other_verify",
+                name="Other Tenant",
+                email="other_verify@trackflow.test",
+                phone="8880001133",
+                verified=True,
+                status="approved"
+            )
+        other_tenant.create_schema(check_if_exists=True)
+        call_command('migrate_schemas', schema_name=other_tenant.schema_name, interactive=False, verbosity=0)
+
+        other_user = User.objects.create_user(
+            username="other_emp@trackflow.test",
+            email="other_emp@trackflow.test",
+            phone="8880001144",
+            password="temppassword123",
+        )
+        with schema_context(other_tenant.schema_name):
+            other_activation = AccountActivation.objects.create(
+                user=other_user,
+                expires_at=timezone.now() + timezone.timedelta(hours=48)
+            )
+
+        with schema_context("public"):
+            Domain.objects.get_or_create(
+                domain=f"{self.tenant.schema_name}.manhargurukkal.site",
+                tenant=self.tenant,
+                defaults={"is_primary": True}
+            )
+
+        client = APIClient()
+        res = client.post(
+            "/api/employees/verify/",
+            {"token": str(other_activation.token)},
+            HTTP_HOST="api.manhargurukkal.site",
+            HTTP_ORIGIN=f"https://{self.tenant.schema_name}.manhargurukkal.site",
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("token", res.data)
+        self.assertEqual(str(res.data["token"]), "Invalid activation token.")
+
+
+    def test_activate_account_api_success_in_tenant_schema(self):
+        """6. /api/employees/activate/ activates account and updates user & activation in correct tenant schema."""
+        from rest_framework.test import APIClient
+        from django_tenants.utils import schema_context
+
+        with schema_context("public"):
+            Domain.objects.get_or_create(
+                domain=f"{self.tenant.schema_name}.manhargurukkal.site",
+                tenant=self.tenant,
+                defaults={"is_primary": True}
+            )
+
+        emp_user = User.objects.create_user(
+            username="activate_emp@trackflow.test",
+            email="activate_emp@trackflow.test",
+            phone="8880001155",
+            password="temppassword123",
+        )
+        emp_user.is_verified = False
+        emp_user.save()
+
+        with schema_context(self.tenant.schema_name):
+            activation = AccountActivation.objects.create(
+                user=emp_user,
+                expires_at=timezone.now() + timezone.timedelta(hours=48)
+            )
+
+        client = APIClient()
+        new_password = "newsecurepassword456"
+        res = client.post(
+            "/api/employees/activate/",
+            {
+                "token": str(activation.token),
+                "password": new_password,
+                "confirm_password": new_password,
+            },
+            HTTP_HOST="api.manhargurukkal.site",
+            HTTP_ORIGIN=f"https://{self.tenant.schema_name}.manhargurukkal.site",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["message"], "Account activated successfully.")
+        self.assertEqual(res.data["email"], "activate_emp@trackflow.test")
+
+        emp_user.refresh_from_db()
+        self.assertTrue(emp_user.is_verified)
+        self.assertTrue(emp_user.check_password(new_password))
+
+        with schema_context(self.tenant.schema_name):
+            activation.refresh_from_db()
+            self.assertTrue(activation.is_used)
+
+    def test_missing_origin_referer_returns_400_rather_than_500(self):
+        """7. Missing Origin/Referer on /api/employees/verify/ and /activate/ returns HTTP 400 rather than HTTP 500."""
+        from rest_framework.test import APIClient
+        import uuid
+
+        client = APIClient()
+        fake_token = str(uuid.uuid4())
+
+        # POST /api/employees/verify/ with no origin/referer
+        res_verify = client.post(
+            "/api/employees/verify/",
+            {"token": fake_token},
+            HTTP_HOST="api.manhargurukkal.site",
+        )
+        self.assertEqual(res_verify.status_code, 400)
+        self.assertEqual(res_verify.data, {"error": "Tenant workspace could not be identified."})
+
+        # POST /api/employees/activate/ with no origin/referer
+        res_activate = client.post(
+            "/api/employees/activate/",
+            {
+                "token": fake_token,
+                "password": "somepassword123",
+                "confirm_password": "somepassword123",
+            },
+            HTTP_HOST="api.manhargurukkal.site",
+        )
+        self.assertEqual(res_activate.status_code, 400)
+        self.assertEqual(res_activate.data, {"error": "Tenant workspace could not be identified."})
+
+

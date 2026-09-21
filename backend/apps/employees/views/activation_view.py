@@ -1,3 +1,4 @@
+from django_tenants.utils import schema_context
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -9,6 +10,7 @@ from apps.employees.serializers.activation_serializers import (
 )
 
 from apps.employees.services.activation_service import ActivationService
+from apps.tenants.utils import resolve_tenant_from_request_origin
 
 
 class VerifyActivationAPIView(APIView):
@@ -18,17 +20,25 @@ class VerifyActivationAPIView(APIView):
         serializer = ActivationTokenSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        activation = ActivationService.verify_token(
-            serializer.validated_data["token"]
-        )
+        tenant = resolve_tenant_from_request_origin(request)
+        if not tenant:
+            return Response(
+                {"error": "Tenant workspace could not be identified."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        return Response(
-            {
-                "message": "Activation token is valid.",
-                "email": activation.user.email,
-            },
-            status=status.HTTP_200_OK,
-        )
+        with schema_context(tenant.schema_name):
+            activation = ActivationService.verify_token(
+                serializer.validated_data["token"]
+            )
+
+            return Response(
+                {
+                    "message": "Activation token is valid.",
+                    "email": activation.user.email,
+                },
+                status=status.HTTP_200_OK,
+            )
 
 
 class ActivateAccountAPIView(APIView):
@@ -38,15 +48,23 @@ class ActivateAccountAPIView(APIView):
         serializer = SetPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        user = ActivationService.activate_account(
-            token=serializer.validated_data["token"],
-            password=serializer.validated_data["password"],
-        )
+        tenant = resolve_tenant_from_request_origin(request)
+        if not tenant:
+            return Response(
+                {"error": "Tenant workspace could not be identified."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        return Response(
-            {
-                "message": "Account activated successfully.",
-                "email": user.email,
-            },
-            status=status.HTTP_200_OK,
-        )
+        with schema_context(tenant.schema_name):
+            user = ActivationService.activate_account(
+                token=serializer.validated_data["token"],
+                password=serializer.validated_data["password"],
+            )
+
+            return Response(
+                {
+                    "message": "Account activated successfully.",
+                    "email": user.email,
+                },
+                status=status.HTTP_200_OK,
+            )
