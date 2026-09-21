@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.core.mail import send_mail
+from apps.authentication.services import build_workspace_url
 
 
 class EmailService:
@@ -10,13 +11,22 @@ class EmailService:
         tenant,
         user,
         activation,
+        domain=None,
     ):
         """
         Sends account activation email.
         """
+        workspace_url = build_workspace_url(tenant, domain=domain)
+        if not workspace_url:
+            base_domain = getattr(settings, "BASE_DOMAIN", "manhargurukkal.site") or "manhargurukkal.site"
+            host_name = f"{tenant.schema_name}.{base_domain}".strip().lower()
+            if host_name.endswith(".localhost") or base_domain in ("localhost", "127.0.0.1"):
+                workspace_url = f"http://{host_name}:5173"
+            else:
+                workspace_url = f"https://{host_name}"
 
         activation_url = (
-            f"http://{tenant.schema_name}.localhost:5173/"
+            f"{workspace_url.rstrip('/')}/"
             f"activate-account/{activation.token}"
         )
 

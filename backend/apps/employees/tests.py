@@ -1,11 +1,13 @@
 from django_tenants.test.cases import TenantTestCase
 from django.contrib.auth import get_user_model, authenticate
-from apps.tenants.models import UserTenant
+from apps.tenants.models import UserTenant, Domain, Client
 from apps.employees.models.employee import Employee, Role
 from apps.employees.models.activation import AccountActivation
 from apps.employees.services.onboarding_service import EmployeeOnboardingService
 from apps.employees.services.activation_service import ActivationService
+from apps.employees.services.email_service import EmailService
 from django.core import mail
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -492,3 +494,90 @@ class EmployeeOnboardingFlowTestCase(TenantTestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn("results", res.data)
         self.assertGreaterEqual(len(res.data["results"]), 1)
+
+    def test_activation_email_url_local_development(self):
+        """Proves local development activation URL has http:// and :5173 port."""
+        mail.outbox.clear()
+        local_domain = Domain(domain=f"{self.tenant.schema_name}.localhost", tenant=self.tenant)
+        activation = AccountActivation.objects.create(
+            user=self.admin_user,
+            expires_at=timezone.now() + timezone.timedelta(hours=48)
+        )
+        EmailService.send_activation_email(
+            tenant=self.tenant,
+            user=self.admin_user,
+            activation=activation,
+            domain=local_domain
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        sent_email = mail.outbox[0]
+        expected_url = f"http://{self.tenant.schema_name}.localhost:5173/activate-account/{activation.token}"
+        self.assertIn(expected_url, sent_email.body)
+        self.assertIn("This activation link will expire in 48 hours.", sent_email.body)
+
+    def test_activation_email_url_production(self):
+        """Proves production activation URL has https:// and no development port (:5173)."""
+        mail.outbox.clear()
+        prod_domain = Domain(domain=f"{self.tenant.schema_name}.manhargurukkal.site", tenant=self.tenant)
+        activation = AccountActivation.objects.create(
+            user=self.admin_user,
+            expires_at=timezone.now() + timezone.timedelta(hours=48)
+        )
+        EmailService.send_activation_email(
+            tenant=self.tenant,
+            user=self.admin_user,
+            activation=activation,
+            domain=prod_domain
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        sent_email = mail.outbox[0]
+        expected_url = f"https://{self.tenant.schema_name}.manhargurukkal.site/activate-account/{activation.token}"
+        self.assertIn(expected_url, sent_email.body)
+        self.assertNotIn(":5173", sent_email.body)
+        self.assertIn("This activation link will expire in 48 hours.", sent_email.body)
+
+    def test_activation_email_url_different_tenant_production(self):
+        """Proves multi-tenant dynamic URL: another tenant gets their own subdomain in production."""
+        mail.outbox.clear()
+        other_tenant = Client(
+            schema_name="logistics-express",
+            name="Logistics Express Inc"
+        )
+        other_domain = Domain(domain="logistics-express.manhargurukkal.site", tenant=other_tenant)
+        activation = AccountActivation.objects.create(
+            user=self.admin_user,
+            expires_at=timezone.now() + timezone.timedelta(hours=48)
+        )
+        EmailService.send_activation_email(
+            tenant=other_tenant,
+            user=self.admin_user,
+            activation=activation,
+            domain=other_domain
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        sent_email = mail.outbox[0]
+        expected_url = f"https://logistics-express.manhargurukkal.site/activate-account/{activation.token}"
+        self.assertIn(expected_url, sent_email.body)
+        self.assertNotIn("logesticgo", sent_email.body)
+        self.assertNotIn(":5173", sent_email.body)
+
+    def test_activation_url_contains_no_credentials(self):
+        """Proves activation URL contains only the activation UUID token and no auth tokens/credentials."""
+        mail.outbox.clear()
+        prod_domain = Domain(domain="logesticgo.manhargurukkal.site", tenant=self.tenant)
+        activation = AccountActivation.objects.create(
+            user=self.admin_user,
+            expires_at=timezone.now() + timezone.timedelta(hours=48)
+        )
+        EmailService.send_activation_email(
+            tenant=self.tenant,
+            user=self.admin_user,
+            activation=activation,
+            domain=prod_domain
+        )
+        sent_email = mail.outbox[0]
+        self.assertNotIn("access=", sent_email.body)
+        self.assertNotIn("refresh=", sent_email.body)
+        self.assertNotIn("Bearer", sent_email.body)
+        self.assertNotIn("auth_transfer", sent_email.body)
+        self.assertIn(f"/activate-account/{activation.token}", sent_email.body)
