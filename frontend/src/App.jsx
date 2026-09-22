@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth, getTenantWorkspaceOrigin, getRootOrigin, isRootOrigin } from './contexts/AuthContext'
-import { buildTenantRedirectUrl, getStoredRefreshToken } from './services/authSession'
+import { useAuth, getTenantWorkspaceOrigin } from './contexts/AuthContext'
+import { buildTenantRedirectUrl } from './services/authSession'
 
 import ProtectedRoute from './routes/ProtectedRoute'
 import DashboardLayout from './layouts/DashboardLayout'
@@ -67,12 +67,6 @@ function PublicRoute({ children }) {
         )
     }
 
-    // Tenant subdomains are dedicated workspaces for authenticated users.
-    // Unauthenticated access to public auth pages (/login, /register) on tenant subdomains must redirect to the root login.
-    if (!isRootOrigin() && !isAuthenticated) {
-        window.location.replace(`${getRootOrigin()}/login`)
-        return null
-    }
 
     if (isAuthenticated) {
         const role = user?.role || user?.user?.role

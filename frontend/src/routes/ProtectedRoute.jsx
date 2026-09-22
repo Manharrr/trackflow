@@ -1,6 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom'
-import { useAuth, getTenantWorkspaceOrigin, getRootOrigin, isRootOrigin } from '../contexts/AuthContext'
-import { buildTenantRedirectUrl, getStoredRefreshToken } from '../services/authSession'
+import { useAuth, getTenantWorkspaceOrigin } from '../contexts/AuthContext'
+import { buildTenantRedirectUrl } from '../services/authSession'
 
 // Centralized permission map matching exact paths and patterns using RegExp
 const ROUTE_PERMISSIONS = {
@@ -56,10 +56,6 @@ export default function ProtectedRoute({ children }) {
   }
 
   if (!isAuthenticated) {
-    if (!isRootOrigin()) {
-      window.location.replace(`${getRootOrigin()}/login`)
-      return null
-    }
     return <Navigate to="/login" replace state={{ from: location }} />
   }
 

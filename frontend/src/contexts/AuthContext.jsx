@@ -174,8 +174,7 @@ export function AuthProvider({ children }) {
           } catch (err) {
             clearStoredTokens(axiosInstance)
             dispatch({ type: 'LOGOUT' })
-            const rootOrigin = getRootOrigin(window)
-            window.location.href = `${rootOrigin}/?logged_out=true`
+            window.location.href = `${window.location.origin}/login?logged_out=true`
             return Promise.reject(err)
           }
         }
@@ -380,8 +379,7 @@ export function AuthProvider({ children }) {
       setSubscription(null)
       dispatch({ type: 'LOGOUT' })
       setLoggingOut(false)
-      const rootOrigin = getRootOrigin(window)
-      window.location.href = `${rootOrigin}/?logged_out=true`
+      window.location.href = `${window.location.origin}/login?logged_out=true`
     }
   }
 
