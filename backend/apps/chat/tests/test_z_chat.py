@@ -1,3 +1,6 @@
+import os
+os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
+
 from django.test import TestCase
 from django.db import connection
 from django.contrib.auth import get_user_model
@@ -298,3 +301,242 @@ class ChatFlowTestCase(TestCase):
 
         tenant, user = get_tenant_and_user.func(unauthorized_scope)
         self.assertTrue(user.is_anonymous)
+
+    def test_websocket_connect_valid_participant_tenant_host(self):
+        """Regression 1: Valid participant connects through tenant host."""
+        from rest_framework_simplejwt.tokens import AccessToken
+        from apps.chat.consumers import ChatConsumer
+        import asyncio
+
+        conv, _ = ConversationService.get_or_create_conversation(
+            tenant=self.tenant, participant_one=self.admin_user, participant_two=self.driver_user
+        )
+        token = AccessToken.for_user(self.admin_user)
+        token["tenant_id"] = self.tenant.id
+        token["schema_name"] = self.tenant.schema_name
+
+        scope = {
+            "type": "websocket",
+            "headers": [(b"host", b"chatschema.manhargurukkal.site")],
+            "query_string": f"token={str(token)}".encode("utf-8"),
+            "url_route": {"kwargs": {"conversation_id": str(conv.id)}},
+        }
+
+        from apps.chat.middleware.tenant_channels_middleware import get_tenant_and_user
+        tenant, user = get_tenant_and_user.func(scope)
+        self.assertEqual(tenant, self.tenant)
+        self.assertEqual(user, self.admin_user)
+
+        # Consumer verification
+        consumer = ChatConsumer()
+        consumer.tenant = tenant
+        consumer.user = user
+        resolved_conv = ChatConsumer.get_conversation.__wrapped__(consumer, str(conv.id))
+        self.assertIsNotNone(resolved_conv)
+        self.assertEqual(resolved_conv.id, conv.id)
+
+        scope["tenant"] = tenant
+        scope["user"] = user
+        consumer.scope = scope
+        consumer.get_conversation = lambda cid: asyncio.sleep(0, result=resolved_conv)
+        accepted = []
+        closed = []
+        consumer.accept = lambda: accepted.append(True) or asyncio.sleep(0)
+        consumer.close = lambda code=None: closed.append(code) or asyncio.sleep(0)
+        consumer.channel_layer = type("MockCL", (), {"group_add": lambda *a, **k: asyncio.sleep(0)})()
+        consumer.channel_name = "test_channel"
+
+        asyncio.run(consumer.connect())
+        self.assertTrue(accepted)
+        self.assertFalse(closed)
+        self.assertEqual(consumer.conversation.id, conv.id)
+
+    def test_websocket_connect_valid_participant_api_host(self):
+        """Regression 2: Valid participant connects through API host (e.g. api.manhargurukkal.site)."""
+        from rest_framework_simplejwt.tokens import AccessToken
+        from apps.chat.consumers import ChatConsumer
+        import asyncio
+
+        conv, _ = ConversationService.get_or_create_conversation(
+            tenant=self.tenant, participant_one=self.admin_user, participant_two=self.driver_user
+        )
+        token = AccessToken.for_user(self.admin_user)
+        token["tenant_id"] = self.tenant.id
+        token["schema_name"] = self.tenant.schema_name
+
+        scope = {
+            "type": "websocket",
+            "headers": [(b"host", b"api.manhargurukkal.site")],
+            "query_string": f"token={str(token)}".encode("utf-8"),
+            "url_route": {"kwargs": {"conversation_id": str(conv.id)}},
+        }
+
+        from apps.chat.middleware.tenant_channels_middleware import get_tenant_and_user
+        tenant, user = get_tenant_and_user.func(scope)
+        self.assertEqual(tenant, self.tenant)
+        self.assertEqual(user, self.admin_user)
+
+        consumer = ChatConsumer()
+        consumer.tenant = tenant
+        consumer.user = user
+        resolved_conv = ChatConsumer.get_conversation.__wrapped__(consumer, str(conv.id))
+        self.assertIsNotNone(resolved_conv)
+        self.assertEqual(resolved_conv.id, conv.id)
+
+        scope["tenant"] = tenant
+        scope["user"] = user
+        consumer.scope = scope
+        consumer.get_conversation = lambda cid: asyncio.sleep(0, result=resolved_conv)
+        accepted = []
+        closed = []
+        consumer.accept = lambda: accepted.append(True) or asyncio.sleep(0)
+        consumer.close = lambda code=None: closed.append(code) or asyncio.sleep(0)
+        consumer.channel_layer = type("MockCL", (), {"group_add": lambda *a, **k: asyncio.sleep(0)})()
+        consumer.channel_name = "test_channel"
+
+        asyncio.run(consumer.connect())
+        self.assertTrue(accepted)
+        self.assertFalse(closed)
+        self.assertEqual(consumer.conversation.id, conv.id)
+
+    def test_websocket_connect_non_participant_rejected(self):
+        """Regression 3: Non-participant rejected with close code 4004."""
+        from rest_framework_simplejwt.tokens import AccessToken
+        from apps.chat.consumers import ChatConsumer
+        import asyncio
+
+        conv, _ = ConversationService.get_or_create_conversation(
+            tenant=self.tenant, participant_one=self.admin_user, participant_two=self.driver_user
+        )
+        # other_driver_user is a member of the tenant, but not in this conversation
+        token = AccessToken.for_user(self.other_driver_user)
+        token["tenant_id"] = self.tenant.id
+        token["schema_name"] = self.tenant.schema_name
+
+        scope = {
+            "type": "websocket",
+            "headers": [(b"host", b"chatschema.manhargurukkal.site")],
+            "query_string": f"token={str(token)}".encode("utf-8"),
+            "url_route": {"kwargs": {"conversation_id": str(conv.id)}},
+        }
+
+        from apps.chat.middleware.tenant_channels_middleware import get_tenant_and_user
+        tenant, user = get_tenant_and_user.func(scope)
+        self.assertEqual(tenant, self.tenant)
+        self.assertEqual(user, self.other_driver_user)
+
+        consumer = ChatConsumer()
+        consumer.tenant = tenant
+        consumer.user = user
+        resolved_conv = ChatConsumer.get_conversation.__wrapped__(consumer, str(conv.id))
+        self.assertIsNone(resolved_conv)
+
+        scope["tenant"] = tenant
+        scope["user"] = user
+        consumer.scope = scope
+        consumer.get_conversation = lambda cid: asyncio.sleep(0, result=resolved_conv)
+        accepted = []
+        closed = []
+        consumer.accept = lambda: accepted.append(True) or asyncio.sleep(0)
+        consumer.close = lambda code=None: closed.append(code) or asyncio.sleep(0)
+        consumer.channel_layer = type("MockCL", (), {"group_add": lambda *a, **k: asyncio.sleep(0)})()
+        consumer.channel_name = "test_channel"
+
+        asyncio.run(consumer.connect())
+        self.assertFalse(accepted)
+        self.assertIn(4004, closed)
+
+    def test_websocket_connect_invalid_and_missing_token_rejected(self):
+        """Regression 4: Invalid/expired/missing token rejected with AnonymousUser / 4003."""
+        from apps.chat.middleware.tenant_channels_middleware import get_tenant_and_user
+
+        # Missing token
+        scope_missing = {
+            "type": "websocket",
+            "headers": [(b"host", b"chatschema.manhargurukkal.site")],
+            "query_string": b"",
+        }
+        tenant, user = get_tenant_and_user.func(scope_missing)
+        self.assertIsNone(tenant)
+        self.assertTrue(user.is_anonymous)
+
+        # Invalid token
+        scope_invalid = {
+            "type": "websocket",
+            "headers": [(b"host", b"chatschema.manhargurukkal.site")],
+            "query_string": b"token=malformed_token_string",
+        }
+        tenant, user = get_tenant_and_user.func(scope_invalid)
+        self.assertIsNone(tenant)
+        self.assertTrue(user.is_anonymous)
+
+    def test_websocket_conversation_lookup_from_public_schema(self):
+        """Regression 5: Conversation lookup works even when DB connection starts in public schema."""
+        from apps.chat.consumers import ChatConsumer
+
+        conv, _ = ConversationService.get_or_create_conversation(
+            tenant=self.tenant, participant_one=self.admin_user, participant_two=self.driver_user
+        )
+
+        # Force connection schema to public
+        connection.set_schema_to_public()
+        self.assertEqual(connection.schema_name, "public")
+
+        consumer = ChatConsumer()
+        consumer.user = self.admin_user
+        consumer.tenant = self.tenant
+
+        loaded_conv = ChatConsumer.get_conversation.__wrapped__(consumer, conv.id)
+        self.assertIsNotNone(loaded_conv)
+        self.assertEqual(loaded_conv.id, conv.id)
+
+        # Non-participant returns None
+        consumer.user = self.other_driver_user
+        rejected_conv = ChatConsumer.get_conversation.__wrapped__(consumer, conv.id)
+        self.assertIsNone(rejected_conv)
+
+        connection.set_tenant(self.tenant)
+
+    def test_websocket_send_receive_and_persistence(self):
+        """Regression 6: Message send/save executes inside schema_context and persists."""
+        from apps.chat.consumers import ChatConsumer
+        import asyncio
+
+        conv, _ = ConversationService.get_or_create_conversation(
+            tenant=self.tenant, participant_one=self.admin_user, participant_two=self.driver_user
+        )
+
+        consumer = ChatConsumer()
+        consumer.user = self.admin_user
+        consumer.tenant = self.tenant
+        consumer.conversation = conv
+
+        test_body = "Regression test message content"
+        msg_obj = ChatConsumer.save_message.__wrapped__(consumer, test_body, MessageType.TEXT)
+        self.assertIsNotNone(msg_obj)
+        self.assertEqual(msg_obj.message, test_body)
+
+        with schema_context(self.tenant.schema_name):
+            db_msg = Message.objects.get(id=msg_obj.id)
+            self.assertEqual(db_msg.message, test_body)
+            self.assertEqual(db_msg.sender_id, self.admin_user.id)
+            self.assertEqual(db_msg.conversation_id, conv.id)
+
+        # Also verify serialization inside schema_context
+        data = ChatConsumer.serialize_message.__wrapped__(consumer, msg_obj)
+        self.assertEqual(data["id"], str(msg_obj.id))
+        self.assertEqual(data["message"], test_body)
+
+        # Verify receive_json and group broadcast flow
+        consumer.group_name = f"chat_{conv.id}"
+        consumer.save_message = lambda msg, mtype: asyncio.sleep(0, result=msg_obj)
+        consumer.serialize_message = lambda mobj: asyncio.sleep(0, result=data)
+        broadcasts = []
+        consumer.channel_layer = type("MockCL", (), {"group_send": lambda s, g, p: broadcasts.append((g, p)) or asyncio.sleep(0)})()
+        consumer.base_send = lambda msg: asyncio.sleep(0)
+
+        asyncio.run(consumer.receive_json({"message": "Broadcast test message", "message_type": "text"}))
+        self.assertEqual(len(broadcasts), 1)
+        self.assertEqual(broadcasts[0][0], f"chat_{conv.id}")
+        self.assertEqual(broadcasts[0][1]["message_data"]["message"], test_body)
+

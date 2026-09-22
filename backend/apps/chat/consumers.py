@@ -1,9 +1,13 @@
 import json
+import logging
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from channels.db import database_sync_to_async
+from django_tenants.utils import schema_context
 from apps.chat.models.conversation import Conversation
 from apps.chat.services.message_service import MessageService
 from apps.chat.serializers.message_serializer import MessageSerializer
+
+logger = logging.getLogger(__name__)
 
 
 class ChatConsumer(AsyncJsonWebsocketConsumer):
@@ -31,8 +35,8 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         if not self.conversation:
             await self.close(code=4004)
             return
-        
-            #    Create group name
+
+        # Create group name
         self.group_name = f"chat_{self.conversation_id}"
 
         # Join group
@@ -58,6 +62,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         try:
             message_obj = await self.save_message(message_text, message_type)
         except Exception as e:
+            logger.exception("Failed to save message: %s", e)
             await self.send_json({"error": str(e)})
             return
 
@@ -80,26 +85,33 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
     @database_sync_to_async
     def get_conversation(self, conversation_id):
         try:
-            from django.db import connection
-            connection.set_tenant(self.tenant)
-            conv = Conversation.objects.get(id=conversation_id, tenant=self.tenant)
-            # Ensure requesting user is a registered participant
-            if self.user != conv.participant_one and self.user != conv.participant_two:
-                return None
-            return conv
-        except Exception:
+            with schema_context(self.tenant.schema_name):
+                conv = Conversation.objects.get(id=conversation_id, tenant=self.tenant)
+                # Ensure requesting user is a registered participant
+                if self.user.id != conv.participant_one_id and self.user.id != conv.participant_two_id:
+                    logger.warning(
+                        "User %s is not a participant in conversation %s",
+                        getattr(self.user, "id", None),
+                        conversation_id,
+                    )
+                    return None
+                return conv
+        except Conversation.DoesNotExist:
+            logger.info("Conversation %s not found for tenant %s", conversation_id, getattr(self.tenant, "schema_name", None))
+            return None
+        except Exception as e:
+            logger.exception("Error looking up conversation %s: %s", conversation_id, e)
             return None
 
     @database_sync_to_async
     def save_message(self, message_text, message_type):
-        from django.db import connection
-        connection.set_tenant(self.tenant)
-        return MessageService.create_message(
-            conversation=self.conversation,
-            sender=self.user,
-            message=message_text,
-            message_type=message_type,
-        )
+        with schema_context(self.tenant.schema_name):
+            return MessageService.create_message(
+                conversation=self.conversation,
+                sender=self.user,
+                message=message_text,
+                message_type=message_type,
+            )
 
     @database_sync_to_async
     def serialize_message(self, message_obj):
@@ -108,8 +120,9 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
                 self.user = user
                 self.tenant = tenant
 
-        serializer = MessageSerializer(
-            message_obj,
-            context={"request": MockRequest(self.user, self.tenant)}
-        )
-        return serializer.data
+        with schema_context(self.tenant.schema_name):
+            serializer = MessageSerializer(
+                message_obj,
+                context={"request": MockRequest(self.user, self.tenant)}
+            )
+            return serializer.data
