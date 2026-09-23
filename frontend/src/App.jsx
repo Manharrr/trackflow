@@ -59,7 +59,10 @@ function PublicRoute({ children }) {
         user,
     } = useAuth()
 
-    if (isLoading) {
+    const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+    const isExplicitlyLoggedOut = urlParams?.get('logged_out') === 'true' || (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('logged_out') === 'true')
+
+    if (isLoading && !isExplicitlyLoggedOut) {
         return (
             <div className="min-h-screen flex items-center justify-center">
                 <div className="w-8 h-8 border-4 border-teal-600 border-t-transparent rounded-full animate-spin" />
@@ -74,7 +77,7 @@ function PublicRoute({ children }) {
         return null
     }
 
-    if (isAuthenticated) {
+    if (isAuthenticated && !isExplicitlyLoggedOut) {
         const role = user?.role || user?.user?.role
         if (role === 'super_admin') {
             return <Navigate to="/super-admin" replace />

@@ -391,13 +391,16 @@ export function AuthProvider({ children }) {
     try {
       sessionStorage.setItem('logged_out', 'true')
       const currentRefresh = getStoredRefreshToken()
-      await axiosInstance.post('/auth/logout/', currentRefresh ? { refresh: currentRefresh } : {})
+      await axiosInstance.post(
+        '/auth/logout/',
+        currentRefresh ? { refresh: currentRefresh } : {},
+        { timeout: 3000 }
+      )
     } catch {
       // Ignore logout API failures
     } finally {
       clearStoredTokens(axiosInstance)
       setSubscription(null)
-      dispatch({ type: 'LOGOUT' })
       const rootOrigin = getRootOrigin(window)
       window.location.href = `${rootOrigin}/login?logged_out=true`
     }
