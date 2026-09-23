@@ -346,3 +346,42 @@ class AuthenticationRegressionTests(TenantTestCase):
             response.headers.get("Access-Control-Allow-Origin"),
             "https://logesticgo.manhargurukkal.site",
         )
+
+    # 15. LogoutAPIView succeeds (200 OK) without access token / Authorization header
+    def test_15_logout_unauthenticated_returns_200_and_clears_cookie(self):
+        # Client has no Authorization header
+        response = self.client.post("/api/auth/logout/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("refresh_token", response.cookies)
+        cookie = response.cookies["refresh_token"]
+        self.assertEqual(cookie["max-age"], 0)
+        self.assertTrue(cookie["httponly"])
+        self.assertEqual(cookie["path"], "/")
+
+    # 16. LogoutAPIView blacklists refresh token from cookie and subsequent refresh fails
+    def test_16_logout_blacklists_refresh_token_from_cookie(self):
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(self.company_admin_user)
+        refresh_str = str(refresh)
+        self.client.cookies["refresh_token"] = refresh_str
+
+        response = self.client.post("/api/auth/logout/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Attempt to use the blacklisted token
+        self.client.cookies["refresh_token"] = refresh_str
+        refresh_response = self.client.post("/api/auth/token/refresh/", {}, format="json")
+        self.assertEqual(refresh_response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    # 17. LogoutAPIView blacklists refresh token from request body
+    def test_17_logout_blacklists_refresh_token_from_body(self):
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(self.company_admin_user)
+        refresh_str = str(refresh)
+
+        response = self.client.post("/api/auth/logout/", {"refresh": refresh_str}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Attempt to use the blacklisted token in refresh
+        refresh_response = self.client.post("/api/auth/token/refresh/", {"refresh": refresh_str}, format="json")
+        self.assertEqual(refresh_response.status_code, status.HTTP_401_UNAUTHORIZED)

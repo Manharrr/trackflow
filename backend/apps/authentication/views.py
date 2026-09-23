@@ -1003,29 +1003,48 @@ class MFALoginAPIView(APIView):
 
 # 5. LOGOUT & REFRESH TOKEN
 
+def clear_auth_cookie(response):
+    """
+    Explicitly expires the refresh_token cookie across both the shared domain
+    (settings.SESSION_COOKIE_DOMAIN) and host-only domain.
+    Matches all original cookie attributes required by RFC 6265bis:
+    - Path=/
+    - Secure=settings.COOKIE_SECURE
+    - HttpOnly=True
+    - SameSite="Lax"
+    - Max-Age=0 and Expires=Thu, 01 Jan 1970 00:00:00 GMT
+    """
+    for d in [settings.SESSION_COOKIE_DOMAIN, None]:
+        response.set_cookie(
+            key="refresh_token",
+            value="",
+            max_age=0,
+            expires="Thu, 01 Jan 1970 00:00:00 GMT",
+            httponly=True,
+            secure=settings.COOKIE_SECURE,
+            samesite="Lax",
+            domain=d,
+            path="/",
+        )
+
+
 class LogoutAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def post(self, request):
         refresh_token = request.data.get("refresh") or request.COOKIES.get("refresh_token")
-        if not refresh_token:
-            return Response(
-                {"error": "Refresh token is required to log out."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            token = RefreshToken(refresh_token)
-            token.blacklist()
-        except Exception:
-            pass
+        if refresh_token:
+            try:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+            except Exception:
+                pass
 
         response = Response(
             {"message": "Logged out successfully."},
             status=status.HTTP_200_OK,
         )
-        response.delete_cookie("refresh_token", domain=settings.SESSION_COOKIE_DOMAIN, path="/", samesite="Lax")
-        response.delete_cookie("refresh_token", path="/", samesite="Lax")
+        clear_auth_cookie(response)
         return response
 
 
@@ -1088,8 +1107,7 @@ class RefreshAPIView(APIView):
                 {"error": "Invalid or expired refresh token."},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
-            response.delete_cookie("refresh_token", domain=settings.SESSION_COOKIE_DOMAIN, path="/", samesite="Lax")
-            response.delete_cookie("refresh_token", path="/", samesite="Lax")
+            clear_auth_cookie(response)
             return response
 
         data = serializer.validated_data

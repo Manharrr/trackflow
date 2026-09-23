@@ -629,5 +629,31 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
     assert.equal(getRoleDefaultPath({ role: 'employee' }), '/employee');
     assert.equal(getRoleDefaultPath(null), '/employee');
   });
+
+  test('30. Source code verification: logged_out param preserved across page reloads and sessionStorage stores logged_out flag', async () => {
+    const fs = await import('node:fs/promises');
+    const authContextSource = await fs.readFile(
+      new URL('../contexts/AuthContext.jsx', import.meta.url),
+      'utf-8'
+    );
+
+    // AuthContext must check both URL and sessionStorage
+    assert.ok(
+      authContextSource.includes("urlParams.get('logged_out') === 'true' || sessionStorage.getItem('logged_out') === 'true'"),
+      'AuthContext must check logged_out from URL and sessionStorage'
+    );
+
+    // AuthContext must persist logged_out flag in sessionStorage when present in URL
+    assert.ok(
+      authContextSource.includes("sessionStorage.setItem('logged_out', 'true')"),
+      'AuthContext must store logged_out in sessionStorage'
+    );
+
+    // AuthContext must NOT strip logged_out via history.replaceState
+    assert.ok(
+      !authContextSource.includes("urlParams.delete('logged_out')"),
+      'AuthContext must not delete logged_out query param on initialization'
+    );
+  });
 });
 

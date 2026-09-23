@@ -88,13 +88,9 @@ export function AuthProvider({ children }) {
       const isLoggedOut = urlParams.get('logged_out') === 'true' || sessionStorage.getItem('logged_out') === 'true'
 
       if (isLoggedOut) {
-        if (urlParams.get('logged_out')) {
-          urlParams.delete('logged_out')
-          const newSearch = urlParams.toString()
-          const newPath = window.location.pathname + (newSearch ? `?${newSearch}` : '')
-          window.history.replaceState({}, '', newPath)
+        if (urlParams.get('logged_out') === 'true') {
+          sessionStorage.setItem('logged_out', 'true')
         }
-        sessionStorage.removeItem('logged_out')
         clearStoredTokens(axiosInstance)
         dispatch({ type: 'LOGOUT' })
         isInitializingRef.current = false
@@ -387,7 +383,6 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     setLoggingOut(true)
     try {
-      sessionStorage.removeItem('logged_out')
       sessionStorage.setItem('logged_out', 'true')
       const currentRefresh = getStoredRefreshToken()
       await axiosInstance.post('/auth/logout/', currentRefresh ? { refresh: currentRefresh } : {})
@@ -397,7 +392,6 @@ export function AuthProvider({ children }) {
       clearStoredTokens(axiosInstance)
       setSubscription(null)
       dispatch({ type: 'LOGOUT' })
-      setLoggingOut(false)
       const rootOrigin = getRootOrigin(window)
       window.location.href = `${rootOrigin}/login?logged_out=true`
     }
