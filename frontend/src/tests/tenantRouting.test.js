@@ -9,6 +9,7 @@ import {
   cleanAuthTransferFromUrl,
   getWebSocketBaseUrl,
   getApiBaseOrigin,
+  getRoleDefaultPath,
 } from '../services/authSession.js';
 
 describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
@@ -258,53 +259,49 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
     assert.equal(targetOrigin, null);
   });
 
-  test('11. Unauthenticated tenant user accesses tenant /login without being redirected to root', () => {
+  test('11. Unauthenticated tenant user accesses tenant /login and redirects to central root login', () => {
     mockWindow.location.hostname = 'logesticgo.manhargurukkal.site';
     mockWindow.location.origin = 'https://logesticgo.manhargurukkal.site';
     mockWindow.location.pathname = '/login';
 
     assert.equal(isRootOrigin(mockWindow), false);
-    // Unauthenticated tenant user stays on tenant /login
-    const currentLogin = `${mockWindow.location.origin}/login`;
-    assert.equal(currentLogin, 'https://logesticgo.manhargurukkal.site/login');
-    assert.notEqual(currentLogin, 'https://manhargurukkal.site/login');
+    // Unauthenticated tenant user redirects to central root /login
+    const rootLoginUrl = `${getRootOrigin(mockWindow)}/login`;
+    assert.equal(rootLoginUrl, 'https://manhargurukkal.site/login');
   });
 
-  test('12. Unauthenticated tenant user on protected route redirects to tenant /login on same origin', () => {
+  test('12. Unauthenticated tenant user on protected route redirects to central root login', () => {
     mockWindow.location.hostname = 'logesticgo.manhargurukkal.site';
     mockWindow.location.origin = 'https://logesticgo.manhargurukkal.site';
     mockWindow.location.pathname = '/dashboard';
 
     assert.equal(isRootOrigin(mockWindow), false);
-    // ProtectedRoute returns <Navigate to="/login" replace state={{ from: location }} />
-    // which remains on the current workspace origin
-    const targetRedirect = '/login';
-    const resolvedUrl = `${mockWindow.location.origin}${targetRedirect}`;
-    assert.equal(resolvedUrl, 'https://logesticgo.manhargurukkal.site/login');
-    assert.notEqual(resolvedUrl, 'https://manhargurukkal.site/login');
+    // ProtectedRoute redirects unauthenticated tenant users to central root origin login
+    const targetRedirect = `${getRootOrigin(mockWindow)}/login`;
+    assert.equal(targetRedirect, 'https://manhargurukkal.site/login');
   });
 
-  test('13. Tenant user logout redirects to tenant workspace /login with logged_out flag', () => {
+  test('13. Tenant user logout redirects to central root login with logged_out flag', () => {
     mockWindow.location.hostname = 'logesticgo.manhargurukkal.site';
     mockWindow.location.origin = 'https://logesticgo.manhargurukkal.site';
-    mockWindow.location.pathname = '/dashboard';
+    mockWindow.location.pathname = '/employee';
 
-    // Logout preserves current workspace origin
-    const logoutRedirect = `${mockWindow.location.origin}/login?logged_out=true`;
-    assert.equal(logoutRedirect, 'https://logesticgo.manhargurukkal.site/login?logged_out=true');
-    assert.notEqual(logoutRedirect, 'https://manhargurukkal.site/login?logged_out=true');
-    assert.notEqual(logoutRedirect, 'https://manhargurukkal.site/?logged_out=true');
+    // Logout always redirects to central root domain login
+    const rootOrigin = getRootOrigin(mockWindow);
+    const logoutRedirect = `${rootOrigin}/login?logged_out=true`;
+    assert.equal(logoutRedirect, 'https://manhargurukkal.site/login?logged_out=true');
+    assert.notEqual(logoutRedirect, 'https://logesticgo.manhargurukkal.site/login?logged_out=true');
 
     // Dynamic compatibility for another tenant
     const otherTenantWindow = {
       location: {
         hostname: 'acme.manhargurukkal.site',
         origin: 'https://acme.manhargurukkal.site',
-        pathname: '/dashboard',
+        pathname: '/operations',
       },
     };
-    const otherLogoutRedirect = `${otherTenantWindow.location.origin}/login?logged_out=true`;
-    assert.equal(otherLogoutRedirect, 'https://acme.manhargurukkal.site/login?logged_out=true');
+    const otherLogoutRedirect = `${getRootOrigin(otherTenantWindow)}/login?logged_out=true`;
+    assert.equal(otherLogoutRedirect, 'https://manhargurukkal.site/login?logged_out=true');
   });
 
   test('14. Local development environment correctly resolves localhost root origin', () => {
@@ -507,7 +504,7 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
     assert.equal(redirectUrl, null);
   });
 
-  test('24. Source code verification: logout redirect, ProtectedRoute, and PublicRoute origin isolation', async () => {
+  test('24. Source code verification: logout redirect, ProtectedRoute, and PublicRoute central login enforcement', async () => {
     const fs = await import('node:fs/promises');
     const authContextSource = await fs.readFile(
       new URL('../contexts/AuthContext.jsx', import.meta.url),
@@ -522,30 +519,115 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
       'utf-8'
     );
 
-    // AuthContext must use window.location.origin on logout & 401
+    // AuthContext must use rootOrigin on logout & 401
     assert.ok(
-      authContextSource.includes('window.location.href = `${window.location.origin}/login?logged_out=true`'),
-      'AuthContext must redirect to window.location.origin/login?logged_out=true'
-    );
-    assert.ok(
-      !authContextSource.includes('${rootOrigin}/?logged_out=true'),
-      'AuthContext must NOT force root domain on logout'
+      authContextSource.includes('window.location.href = `${rootOrigin}/login?logged_out=true`'),
+      'AuthContext must redirect to rootOrigin/login?logged_out=true'
     );
 
-    // ProtectedRoute must NOT use getRootOrigin on unauthenticated redirect
+    // ProtectedRoute must redirect unauthenticated tenant users to central root origin login
     assert.ok(
-      !protectedRouteSource.includes('window.location.replace(`${getRootOrigin()}/login`)'),
-      'ProtectedRoute must not redirect unauthenticated tenant users to root origin'
-    );
-    assert.ok(
-      protectedRouteSource.includes('<Navigate to="/login" replace state={{ from: location }} />'),
-      'ProtectedRoute must use React Router Navigate to /login on current origin'
+      protectedRouteSource.includes('window.location.replace(`${getRootOrigin()}/login`)'),
+      'ProtectedRoute must redirect unauthenticated tenant users to root origin login'
     );
 
-    // App.jsx PublicRoute must allow unauthenticated users on tenant origin
+    // App.jsx PublicRoute must redirect unauthenticated tenant users to central root origin login
     assert.ok(
-      !appSource.includes('!isRootOrigin() && !isAuthenticated'),
-      'App.jsx PublicRoute must not block unauthenticated users on tenant origins'
+      appSource.includes('!isRootOrigin() && !isAuthenticated'),
+      'App.jsx PublicRoute must check !isRootOrigin() && !isAuthenticated'
+    );
+    assert.ok(
+      appSource.includes('window.location.replace(`${getRootOrigin()}/login`)'),
+      'App.jsx PublicRoute must redirect unauthenticated tenant visitors to central root login'
     );
   });
+
+  test('25. Central login: Employee belonging to tenant logesticgo redirects to /employee on tenant origin', () => {
+    const tenant = {
+      schema_name: 'logesticgo',
+      workspace_url: 'https://logesticgo.manhargurukkal.site',
+    };
+    const targetPath = getRoleDefaultPath('employee');
+    assert.equal(targetPath, '/employee');
+
+    const redirectUrl = buildTenantRedirectUrl({
+      tenant,
+      currentOrigin: 'https://manhargurukkal.site',
+      targetPath,
+      windowObj: mockWindow,
+    });
+
+    assert.equal(redirectUrl, 'https://logesticgo.manhargurukkal.site/employee');
+  });
+
+  test('26. Central login: Operations Manager belonging to tenant logesticgo redirects to /operations on tenant origin', () => {
+    const tenant = {
+      schema_name: 'logesticgo',
+      workspace_url: 'https://logesticgo.manhargurukkal.site',
+    };
+    const targetPath = getRoleDefaultPath('operations_manager');
+    assert.equal(targetPath, '/operations');
+
+    const redirectUrl = buildTenantRedirectUrl({
+      tenant,
+      currentOrigin: 'https://manhargurukkal.site',
+      targetPath,
+      windowObj: mockWindow,
+    });
+
+    assert.equal(redirectUrl, 'https://logesticgo.manhargurukkal.site/operations');
+  });
+
+  test('27. Central login: Company Admin belonging to tenant logesticgo redirects to /dashboard (or /payment) on tenant origin', () => {
+    const tenant = {
+      schema_name: 'logesticgo',
+      workspace_url: 'https://logesticgo.manhargurukkal.site',
+    };
+    // Active subscription
+    const activePath = getRoleDefaultPath('company_admin', { subscription_status: 'active' });
+    assert.equal(activePath, '/dashboard');
+
+    const activeRedirect = buildTenantRedirectUrl({
+      tenant,
+      currentOrigin: 'https://manhargurukkal.site',
+      targetPath: activePath,
+      windowObj: mockWindow,
+    });
+    assert.equal(activeRedirect, 'https://logesticgo.manhargurukkal.site/dashboard');
+
+    // Inactive subscription
+    const inactivePath = getRoleDefaultPath('company_admin', { subscription_status: 'payment_pending' });
+    assert.equal(inactivePath, '/payment');
+
+    const inactiveRedirect = buildTenantRedirectUrl({
+      tenant,
+      currentOrigin: 'https://manhargurukkal.site',
+      targetPath: inactivePath,
+      windowObj: mockWindow,
+    });
+    assert.equal(inactiveRedirect, 'https://logesticgo.manhargurukkal.site/payment');
+  });
+
+  test('28. Central login: Super Admin is not tenant-bound and stays on root domain /super-admin', () => {
+    const targetPath = getRoleDefaultPath('super_admin');
+    assert.equal(targetPath, '/super-admin');
+
+    const redirectUrl = buildTenantRedirectUrl({
+      tenant: null,
+      currentOrigin: 'https://manhargurukkal.site',
+      targetPath,
+      windowObj: mockWindow,
+    });
+    assert.equal(redirectUrl, null);
+  });
+
+  test('29. getRoleDefaultPath correctly maps all role variants and user objects', () => {
+    assert.equal(getRoleDefaultPath({ role: 'super_admin' }), '/super-admin');
+    assert.equal(getRoleDefaultPath({ role: 'company_admin' }), '/dashboard');
+    assert.equal(getRoleDefaultPath({ role: 'company_admin' }, { subscription_status: 'expired' }), '/payment');
+    assert.equal(getRoleDefaultPath({ user: { role: 'operations_manager' } }), '/operations');
+    assert.equal(getRoleDefaultPath({ role: 'employee' }), '/employee');
+    assert.equal(getRoleDefaultPath(null), '/employee');
+  });
 });
+

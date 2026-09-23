@@ -1,5 +1,5 @@
 import { Navigate } from 'react-router-dom'
-import { useAuth, getTenantWorkspaceOrigin } from '../contexts/AuthContext'
+import { useAuth, getTenantWorkspaceOrigin, getRoleDefaultPath } from '../contexts/AuthContext'
 
 export default function RoleRedirect() {
   const { user, isLoading, isAuthenticated } = useAuth()
@@ -21,17 +21,12 @@ export default function RoleRedirect() {
     return <Navigate to="/super-admin" replace />
   }
 
+  const targetPath = getRoleDefaultPath(role)
   const tenantOrigin = getTenantWorkspaceOrigin(user.tenant || user.tenant_data || user)
   if (tenantOrigin && window.location.origin !== tenantOrigin) {
-    window.location.replace(`${tenantOrigin}/dashboard`)
+    window.location.replace(`${tenantOrigin}${targetPath}`)
     return null
   }
 
-  if (role === 'company_admin') {
-    return <Navigate to="/dashboard" replace />
-  }
-  if (role === 'operations_manager') {
-    return <Navigate to="/operations" replace />
-  }
-  return <Navigate to="/employee" replace />
+  return <Navigate to={targetPath} replace />
 }

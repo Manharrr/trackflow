@@ -339,3 +339,31 @@ export const getApiBaseOrigin = (windowObj = (typeof window !== 'undefined' ? wi
   return 'https://api.manhargurukkal.site';
 };
 
+/**
+ * Resolves the default destination route for a given user role.
+ * - super_admin -> /super-admin
+ * - company_admin -> /payment (if subscription inactive) or /dashboard
+ * - operations_manager -> /operations
+ * - employee (default) -> /employee
+ */
+export const getRoleDefaultPath = (roleOrUser, subscription = null) => {
+  let role = roleOrUser;
+  if (typeof roleOrUser === 'object' && roleOrUser !== null) {
+    role = roleOrUser.role || roleOrUser.user?.role;
+  }
+
+  if (role === 'super_admin') {
+    return '/super-admin';
+  }
+  if (role === 'company_admin') {
+    if (subscription && subscription.subscription_status !== 'active') {
+      return '/payment';
+    }
+    return '/dashboard';
+  }
+  if (role === 'operations_manager') {
+    return '/operations';
+  }
+  return '/employee';
+};
+

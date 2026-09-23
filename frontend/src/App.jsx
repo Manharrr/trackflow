@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth, getTenantWorkspaceOrigin } from './contexts/AuthContext'
+import { useAuth, getTenantWorkspaceOrigin, getRootOrigin, isRootOrigin, getRoleDefaultPath } from './contexts/AuthContext'
 import { buildTenantRedirectUrl } from './services/authSession'
 
 import ProtectedRoute from './routes/ProtectedRoute'
@@ -67,6 +67,12 @@ function PublicRoute({ children }) {
         )
     }
 
+    // Tenant subdomains are dedicated workspaces for authenticated users.
+    // Unauthenticated access to public auth pages (/login, /register) on tenant subdomains must redirect to the central root login.
+    if (!isRootOrigin() && !isAuthenticated) {
+        window.location.replace(`${getRootOrigin()}/login`)
+        return null
+    }
 
     if (isAuthenticated) {
         const role = user?.role || user?.user?.role
@@ -74,24 +80,19 @@ function PublicRoute({ children }) {
             return <Navigate to="/super-admin" replace />
         }
 
+        const targetPath = getRoleDefaultPath(role)
         const tenantOrigin = getTenantWorkspaceOrigin(user?.tenant || user?.tenant_data || user)
         if (tenantOrigin && window.location.origin !== tenantOrigin) {
             const redirectUrl = buildTenantRedirectUrl({
                 tenant: user?.tenant || user?.tenant_data || user,
                 currentOrigin: window.location.origin,
-                targetPath: '/dashboard',
+                targetPath,
             })
-            window.location.replace(redirectUrl || `${tenantOrigin}/dashboard`)
+            window.location.replace(redirectUrl || `${tenantOrigin}${targetPath}`)
             return null
         }
 
-        if (role === 'company_admin') {
-            return <Navigate to="/dashboard" replace />
-        } else if (role === 'operations_manager') {
-            return <Navigate to="/operations" replace />
-        } else {
-            return <Navigate to="/employee" replace />
-        }
+        return <Navigate to={targetPath} replace />
     }
 
     return children
@@ -232,6 +233,11 @@ export default function App() {
                 <Route
                     path="/dashboard"
                     element={<CompanyDashboard />}
+                />
+
+                <Route
+                    path="/company-admin"
+                    element={<Navigate to="/dashboard" replace />}
                 />
 
                 <Route

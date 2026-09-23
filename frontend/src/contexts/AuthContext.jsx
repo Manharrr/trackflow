@@ -14,9 +14,10 @@ import {
   isRootOrigin,
   buildTenantRedirectUrl,
   cleanAuthTransferFromUrl,
+  getRoleDefaultPath,
 } from '../services/authSession'
 
-export { getTenantWorkspaceOrigin, getRootOrigin, isRootOrigin }
+export { getTenantWorkspaceOrigin, getRootOrigin, isRootOrigin, getRoleDefaultPath }
 
 const AuthContext = createContext()
 
@@ -174,7 +175,8 @@ export function AuthProvider({ children }) {
           } catch (err) {
             clearStoredTokens(axiosInstance)
             dispatch({ type: 'LOGOUT' })
-            window.location.href = `${window.location.origin}/login?logged_out=true`
+            const rootOrigin = getRootOrigin(window)
+            window.location.href = `${rootOrigin}/login?logged_out=true`
             return Promise.reject(err)
           }
         }
@@ -205,45 +207,50 @@ export function AuthProvider({ children }) {
       setStoredRefreshToken(res.data.refresh)
     }
 
-    const tenantRedirect = buildTenantRedirectUrl({
-      tenant: res.data.tenant || res.data,
-      currentOrigin: window.location.origin,
-      targetPath: '/dashboard',
-    })
-
-    if (tenantRedirect) {
-      isInitializingRef.current = true
-      return { redirectUrl: tenantRedirect, tenant: res.data.tenant }
-    }
-
-    const meRes = await axiosInstance.get('/auth/me/')
-    const role = meRes.data.role || meRes.data.user?.role
+    let meData = null
+    let role = res.data.user?.role
     let subData = null
-    if (role === 'company_admin' && meRes.data.company_status === 'approved') {
-      setIsSubscriptionLoading(true)
-      try {
-        const subRes = await getSubscriptionStatus()
-        subData = subRes.data
-        setSubscription(subRes.data)
-      } catch (err) {
-        console.error('Failed to load subscription status:', err)
-        setSubscription(null)
-      } finally {
-        setIsSubscriptionLoading(false)
+
+    try {
+      const meRes = await axiosInstance.get('/auth/me/')
+      meData = meRes.data
+      role = meData.role || meData.user?.role || role
+      if (role === 'company_admin' && meData.company_status === 'approved') {
+        setIsSubscriptionLoading(true)
+        try {
+          const subRes = await getSubscriptionStatus()
+          subData = subRes.data
+          setSubscription(subRes.data)
+        } catch (err) {
+          console.error('Failed to load subscription status:', err)
+          setSubscription(null)
+        } finally {
+          setIsSubscriptionLoading(false)
+        }
+      }
+      dispatch({ type: 'LOGIN_SUCCESS', payload: meData })
+    } catch {
+      if (res.data.user) {
+        dispatch({ type: 'LOGIN_SUCCESS', payload: res.data.user })
       }
     }
-    dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
 
-    let targetPath = '/dashboard'
-    if (role === 'super_admin') {
-      targetPath = '/super-admin'
-    } else if (role === 'operations_manager') {
-      targetPath = '/operations'
-    } else if (role === 'employee') {
-      targetPath = '/employee'
+    const targetPath = getRoleDefaultPath(role, subData)
+
+    if (role !== 'super_admin') {
+      const tenantRedirect = buildTenantRedirectUrl({
+        tenant: res.data.tenant || meData?.tenant || res.data,
+        currentOrigin: window.location.origin,
+        targetPath,
+      })
+
+      if (tenantRedirect) {
+        isInitializingRef.current = true
+        return { redirectUrl: tenantRedirect, tenant: res.data.tenant, role, user: meData || res.data.user }
+      }
     }
 
-    return { redirectUrl: targetPath, role, user: meRes.data }
+    return { redirectUrl: targetPath, role, user: meData || res.data.user }
   }
 
   const googleLogin = async (token, workspace_code = null) => {
@@ -265,43 +272,50 @@ export function AuthProvider({ children }) {
       setStoredRefreshToken(res.data.refresh)
     }
 
-    const tenantRedirect = buildTenantRedirectUrl({
-      tenant: res.data.tenant || res.data,
-      currentOrigin: window.location.origin,
-      targetPath: '/dashboard',
-    })
+    let meData = null
+    let role = res.data.user?.role
+    let subData = null
 
-    if (tenantRedirect) {
-      isInitializingRef.current = true
-      return { redirectUrl: tenantRedirect, tenant: res.data.tenant }
-    }
-
-    const meRes = await axiosInstance.get('/auth/me/')
-    const role = meRes.data.role || meRes.data.user?.role
-    if (role === 'company_admin' && meRes.data.company_status === 'approved') {
-      setIsSubscriptionLoading(true)
-      try {
-        const subRes = await getSubscriptionStatus()
-        setSubscription(subRes.data)
-      } catch (err) {
-        console.error('Failed to load subscription status:', err)
-        setSubscription(null)
-      } finally {
-        setIsSubscriptionLoading(false)
+    try {
+      const meRes = await axiosInstance.get('/auth/me/')
+      meData = meRes.data
+      role = meData.role || meData.user?.role || role
+      if (role === 'company_admin' && meData.company_status === 'approved') {
+        setIsSubscriptionLoading(true)
+        try {
+          const subRes = await getSubscriptionStatus()
+          subData = subRes.data
+          setSubscription(subRes.data)
+        } catch (err) {
+          console.error('Failed to load subscription status:', err)
+          setSubscription(null)
+        } finally {
+          setIsSubscriptionLoading(false)
+        }
+      }
+      dispatch({ type: 'LOGIN_SUCCESS', payload: meData })
+    } catch {
+      if (res.data.user) {
+        dispatch({ type: 'LOGIN_SUCCESS', payload: res.data.user })
       }
     }
-    dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
 
-    let targetPath = '/dashboard'
-    if (role === 'super_admin') {
-      targetPath = '/super-admin'
-    } else if (role === 'operations_manager') {
-      targetPath = '/operations'
-    } else if (role === 'employee') {
-      targetPath = '/employee'
+    const targetPath = getRoleDefaultPath(role, subData)
+
+    if (role !== 'super_admin') {
+      const tenantRedirect = buildTenantRedirectUrl({
+        tenant: res.data.tenant || meData?.tenant || res.data,
+        currentOrigin: window.location.origin,
+        targetPath,
+      })
+
+      if (tenantRedirect) {
+        isInitializingRef.current = true
+        return { redirectUrl: tenantRedirect, tenant: res.data.tenant, role, user: meData || res.data.user }
+      }
     }
 
-    return { redirectUrl: targetPath, role, user: meRes.data }
+    return { redirectUrl: targetPath, role, user: meData || res.data.user }
   }
 
   const register = async (email, username, password, confirm_password) => {
@@ -326,43 +340,48 @@ export function AuthProvider({ children }) {
       setStoredRefreshToken(refreshToken)
     }
 
-    const tenantRedirect = buildTenantRedirectUrl({
-      tenant: tenant || workspaceUrl,
-      currentOrigin: window.location.origin,
-      targetPath: '/dashboard',
-    })
+    let meData = null
+    let role = null
+    let subData = null
 
-    if (tenantRedirect) {
-      isInitializingRef.current = true
-      return { redirectUrl: tenantRedirect, tenant: tenant }
+    try {
+      const meRes = await axiosInstance.get('/auth/me/')
+      meData = meRes.data
+      role = meData.role || meData.user?.role
+      if (role === 'company_admin' && meData.company_status === 'approved') {
+        setIsSubscriptionLoading(true)
+        try {
+          const subRes = await getSubscriptionStatus()
+          subData = subRes.data
+          setSubscription(subRes.data)
+        } catch (err) {
+          console.error('Failed to load subscription status:', err)
+          setSubscription(null)
+        } finally {
+          setIsSubscriptionLoading(false)
+        }
+      }
+      dispatch({ type: 'LOGIN_SUCCESS', payload: meData })
+    } catch {
+      // fallback
     }
 
-    const meRes = await axiosInstance.get('/auth/me/')
-    const role = meRes.data.role || meRes.data.user?.role
-    if (role === 'company_admin' && meRes.data.company_status === 'approved') {
-      setIsSubscriptionLoading(true)
-      try {
-        const subRes = await getSubscriptionStatus()
-        setSubscription(subRes.data)
-      } catch (err) {
-        console.error('Failed to load subscription status:', err)
-        setSubscription(null)
-      } finally {
-        setIsSubscriptionLoading(false)
+    const targetPath = getRoleDefaultPath(role, subData)
+
+    if (role !== 'super_admin') {
+      const tenantRedirect = buildTenantRedirectUrl({
+        tenant: tenant || workspaceUrl || meData?.tenant,
+        currentOrigin: window.location.origin,
+        targetPath,
+      })
+
+      if (tenantRedirect) {
+        isInitializingRef.current = true
+        return { redirectUrl: tenantRedirect, tenant: tenant, role, user: meData }
       }
     }
-    dispatch({ type: 'LOGIN_SUCCESS', payload: meRes.data })
 
-    let targetPath = '/dashboard'
-    if (role === 'super_admin') {
-      targetPath = '/super-admin'
-    } else if (role === 'operations_manager') {
-      targetPath = '/operations'
-    } else if (role === 'employee') {
-      targetPath = '/employee'
-    }
-
-    return { redirectUrl: targetPath, role, user: meRes.data }
+    return { redirectUrl: targetPath, role, user: meData }
   }
 
   const logout = async () => {
@@ -379,7 +398,8 @@ export function AuthProvider({ children }) {
       setSubscription(null)
       dispatch({ type: 'LOGOUT' })
       setLoggingOut(false)
-      window.location.href = `${window.location.origin}/login?logged_out=true`
+      const rootOrigin = getRootOrigin(window)
+      window.location.href = `${rootOrigin}/login?logged_out=true`
     }
   }
 

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
 import axiosInstance from '../api/axios'
-import { useAuth, getTenantWorkspaceOrigin } from '../contexts/AuthContext'
+import { useAuth, getTenantWorkspaceOrigin, getRoleDefaultPath } from '../contexts/AuthContext'
 import { buildTenantRedirectUrl } from '../services/authSession'
 import toast from 'react-hot-toast'
 import { ShieldCheck, Fingerprint, ArrowLeft } from 'lucide-react'
@@ -19,33 +19,24 @@ export default function MFAPage() {
 
     const handleSubmit = async (e) => {
         e.preventDefault()
-        if (loading) return
-        setLoading(true)
+        if (!code || code.length !== 6) {
+            toast.error('Please enter a valid 6-digit code')
+            return
+        }
 
+        setLoading(true)
         try {
             const res = await axiosInstance.post('/auth/mfa/login/', {
                 email,
                 code,
-                workspace_code,
+                workspace_code: workspace_code || undefined
             })
 
-            const token = res.data.access
-            const workspaceUrl = res.data.tenant?.workspace_url
-            const refreshToken = res.data.refresh
-            const tenant = res.data.tenant
+            const { access, refresh, tenant } = res.data
+            const workspaceUrl = tenant?.workspace_url
 
-            const me = await completeMfaLogin(token, workspaceUrl, refreshToken, tenant)
-
-            if (me?.redirectUrl) {
-                if (me.redirectUrl.startsWith("http://") || me.redirectUrl.startsWith("https://")) {
-                    window.location.replace(me.redirectUrl)
-                } else {
-                    navigate(me.redirectUrl, { replace: true })
-                }
-                return
-            }
-
-            toast.success("MFA verification successful!")
+            const me = await completeMfaLogin(access, workspaceUrl, refresh, tenant)
+            toast.success('Authentication successful')
 
             const role = me?.role || me?.user?.role
 
@@ -54,10 +45,11 @@ export default function MFAPage() {
                 return
             }
 
+            const targetPath = getRoleDefaultPath(role)
             const redirectUrl = buildTenantRedirectUrl({
                 tenant: tenant || workspaceUrl || me?.tenant || me?.user?.tenant,
                 currentOrigin: window.location.origin,
-                targetPath: '/dashboard',
+                targetPath,
             })
             if (redirectUrl) {
                 window.location.replace(redirectUrl)
