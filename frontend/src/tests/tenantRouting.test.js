@@ -10,6 +10,9 @@ import {
   getWebSocketBaseUrl,
   getApiBaseOrigin,
   getRoleDefaultPath,
+  setSharedLoggedOutCookie,
+  clearSharedLoggedOutCookie,
+  hasSharedLoggedOutCookie,
 } from '../services/authSession.js';
 
 describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
@@ -765,6 +768,58 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
     assert.ok(
       logoutBody.includes("window.location.href = `${rootOrigin}/`"),
       'logout() must redirect cleanly to central landing page'
+    );
+  });
+
+  test('34. setSharedLoggedOutCookie and hasSharedLoggedOutCookie manage domain cookies correctly', () => {
+    const fakeTenantWindow = {
+      location: {
+        hostname: 'logesticgo.manhargurukkal.site',
+      },
+      document: {
+        cookie: '',
+      },
+    };
+
+    assert.equal(hasSharedLoggedOutCookie(fakeTenantWindow), false);
+    setSharedLoggedOutCookie(fakeTenantWindow);
+    assert.ok(fakeTenantWindow.document.cookie.includes('logged_out=true'));
+    assert.equal(hasSharedLoggedOutCookie(fakeTenantWindow), true);
+
+    clearSharedLoggedOutCookie(fakeTenantWindow);
+    assert.ok(fakeTenantWindow.document.cookie.includes('logged_out=;'));
+  });
+
+  test('35. Source code verification: PublicRoute, ProtectedRoute, and AuthContext check hasSharedLoggedOutCookie', async () => {
+    const fs = await import('node:fs/promises');
+    const appSource = await fs.readFile(
+      new URL('../App.jsx', import.meta.url),
+      'utf-8'
+    );
+    const protectedRouteSource = await fs.readFile(
+      new URL('../routes/ProtectedRoute.jsx', import.meta.url),
+      'utf-8'
+    );
+    const authContextSource = await fs.readFile(
+      new URL('../contexts/AuthContext.jsx', import.meta.url),
+      'utf-8'
+    );
+
+    assert.ok(
+      appSource.includes('hasSharedLoggedOutCookie()'),
+      'PublicRoute in App.jsx must check hasSharedLoggedOutCookie'
+    );
+    assert.ok(
+      protectedRouteSource.includes('hasSharedLoggedOutCookie()'),
+      'ProtectedRoute must check hasSharedLoggedOutCookie'
+    );
+    assert.ok(
+      authContextSource.includes('hasSharedLoggedOutCookie(window)'),
+      'AuthContext must check hasSharedLoggedOutCookie'
+    );
+    assert.ok(
+      authContextSource.includes('setSharedLoggedOutCookie(window)'),
+      'logout in AuthContext must call setSharedLoggedOutCookie'
     );
   });
 });

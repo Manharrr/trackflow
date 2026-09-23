@@ -1,5 +1,5 @@
 import { Navigate, useLocation } from 'react-router-dom'
-import { useAuth, getTenantWorkspaceOrigin, getRootOrigin, isRootOrigin } from '../contexts/AuthContext'
+import { useAuth, getTenantWorkspaceOrigin, getRootOrigin, isRootOrigin, hasSharedLoggedOutCookie } from '../contexts/AuthContext'
 import { buildTenantRedirectUrl, isLoggingOut } from '../services/authSession'
 
 // Centralized permission map matching exact paths and patterns using RegExp
@@ -63,7 +63,10 @@ export default function ProtectedRoute({ children }) {
 
   if (!isAuthenticated) {
     if (!isRootOrigin()) {
-      const isLoggedOut = isLoggingOut() || (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('logged_out') === 'true')
+      const isLoggedOut =
+        isLoggingOut() ||
+        hasSharedLoggedOutCookie() ||
+        (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('logged_out') === 'true')
       if (isLoggedOut) {
         window.location.replace(`${getRootOrigin()}/`)
         return null

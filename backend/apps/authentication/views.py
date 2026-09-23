@@ -1046,6 +1046,7 @@ def clear_auth_cookie(response):
 
 class LogoutAPIView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request):
         refresh_token = request.data.get("refresh") or request.COOKIES.get("refresh_token")

@@ -18,6 +18,60 @@ export const setLoggingOut = (value) => {
 
 export const isLoggingOut = () => isLoggingOutFlag;
 
+export const setSharedLoggedOutCookie = (windowObj = (typeof window !== 'undefined' ? window : null)) => {
+  if (!windowObj?.document) return;
+  const hostname = windowObj.location?.hostname || '';
+  const isLocal = hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '127.0.0.1';
+
+  try {
+    if (isLocal) {
+      windowObj.document.cookie = 'logged_out=true; path=/; SameSite=Lax';
+      if (hostname.endsWith('.localhost')) {
+        windowObj.document.cookie = 'logged_out=true; domain=.localhost; path=/; SameSite=Lax';
+      }
+    } else {
+      const baseDomain = hostname.includes('manhargurukkal.site')
+        ? 'manhargurukkal.site'
+        : hostname.replace(/^[a-z0-9-]+\./, '');
+      windowObj.document.cookie = `logged_out=true; domain=.${baseDomain}; path=/; SameSite=Lax; Secure`;
+      windowObj.document.cookie = `logged_out=true; domain=${baseDomain}; path=/; SameSite=Lax; Secure`;
+      windowObj.document.cookie = 'logged_out=true; path=/; SameSite=Lax; Secure';
+    }
+  } catch {
+    // Ignore cookie access errors in restricted modes
+  }
+};
+
+export const clearSharedLoggedOutCookie = (windowObj = (typeof window !== 'undefined' ? window : null)) => {
+  if (!windowObj?.document) return;
+  const hostname = windowObj.location?.hostname || '';
+  const isLocal = hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '127.0.0.1';
+  const pastDate = 'Thu, 01 Jan 1970 00:00:00 GMT';
+
+  try {
+    if (isLocal) {
+      windowObj.document.cookie = `logged_out=; path=/; expires=${pastDate}; SameSite=Lax`;
+      if (hostname.endsWith('.localhost')) {
+        windowObj.document.cookie = `logged_out=; domain=.localhost; path=/; expires=${pastDate}; SameSite=Lax`;
+      }
+    } else {
+      const baseDomain = hostname.includes('manhargurukkal.site')
+        ? 'manhargurukkal.site'
+        : hostname.replace(/^[a-z0-9-]+\./, '');
+      windowObj.document.cookie = `logged_out=; domain=.${baseDomain}; path=/; expires=${pastDate}; SameSite=Lax; Secure`;
+      windowObj.document.cookie = `logged_out=; domain=${baseDomain}; path=/; expires=${pastDate}; SameSite=Lax; Secure`;
+      windowObj.document.cookie = `logged_out=; path=/; expires=${pastDate}; SameSite=Lax; Secure`;
+    }
+  } catch {
+    // Ignore cookie errors
+  }
+};
+
+export const hasSharedLoggedOutCookie = (windowObj = (typeof window !== 'undefined' ? window : null)) => {
+  if (!windowObj?.document?.cookie) return false;
+  return /(?:^|;\s*)logged_out=true(?:\s*;|$)/.test(windowObj.document.cookie);
+};
+
 export const getStoredRefreshToken = () => {
   if (inMemoryRefreshToken) {
     return inMemoryRefreshToken;
@@ -87,8 +141,8 @@ export const createTokenRefresher = ({ axiosClient, onLogout = () => {} }) => {
       return inFlightRefreshPromise;
     }
 
-    // Never attempt refresh if logout has been initiated
-    if (isLoggingOutFlag) {
+    // Never attempt refresh if logout has been initiated or logged_out flag is present
+    if (isLoggingOutFlag || (typeof window !== 'undefined' && hasSharedLoggedOutCookie(window))) {
       throw new Error('Logout in progress');
     }
 

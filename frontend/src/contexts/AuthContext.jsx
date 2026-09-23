@@ -4,11 +4,15 @@ import { getSubscriptionStatus } from '../services/paymentService'
 import {
   getStoredRefreshToken,
   setStoredRefreshToken,
+  getStoredAccessToken,
   setStoredAccessToken,
   clearStoredTokens,
   createTokenRefresher,
   setLoggingOut,
   isLoggingOut,
+  setSharedLoggedOutCookie,
+  clearSharedLoggedOutCookie,
+  hasSharedLoggedOutCookie,
   getTenantWorkspaceOrigin,
   getRootOrigin,
   isRootOrigin,
@@ -17,7 +21,7 @@ import {
   getRoleDefaultPath,
 } from '../services/authSession'
 
-export { getTenantWorkspaceOrigin, getRootOrigin, isRootOrigin, getRoleDefaultPath }
+export { getTenantWorkspaceOrigin, getRootOrigin, isRootOrigin, getRoleDefaultPath, hasSharedLoggedOutCookie }
 
 const AuthContext = createContext()
 
@@ -85,7 +89,9 @@ export function AuthProvider({ children }) {
       cleanAuthTransferFromUrl(window)
 
       const urlParams = new URLSearchParams(window.location.search)
-      const isLoggedOut = urlParams.get('logged_out') === 'true' || sessionStorage.getItem('logged_out') === 'true'
+      const isLoggedOut =
+        hasSharedLoggedOutCookie(window) ||
+        (urlParams.get('logged_out') === 'true' || sessionStorage.getItem('logged_out') === 'true')
 
       if (isLoggedOut) {
         if (urlParams.get('logged_out') === 'true') {
@@ -195,6 +201,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   const login = async (phone, password, workspace_code = null) => {
+    clearSharedLoggedOutCookie(window)
     sessionStorage.removeItem('logged_out')
 
     const payload = { phone, password }
@@ -262,6 +269,7 @@ export function AuthProvider({ children }) {
   }
 
   const googleLogin = async (token, workspace_code = null) => {
+    clearSharedLoggedOutCookie(window)
     sessionStorage.removeItem('logged_out')
 
     const payload = { token }
@@ -340,7 +348,9 @@ export function AuthProvider({ children }) {
     return res.data
   }
 
-  const completeMfaLogin = async (token, workspaceUrl = null, refreshToken = null, tenant = null) => {
+  const completeMfaLogin = async (token, workspace_code = null, refreshToken = null, tenant = null) => {
+    clearSharedLoggedOutCookie(window)
+    sessionStorage.removeItem('logged_out')
     if (token) {
       setAccessToken(token)
     }
@@ -394,13 +404,16 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     setLoggingOut(true)
+    setSharedLoggedOutCookie(window)
     try {
       sessionStorage.setItem('logged_out', 'true')
       const currentRefresh = getStoredRefreshToken()
+      const currentAccess = getStoredAccessToken()
+      const headers = currentAccess ? { Authorization: `Bearer ${currentAccess}` } : {}
       await axiosInstance.post(
         '/auth/logout/',
         currentRefresh ? { refresh: currentRefresh } : {},
-        { timeout: 3000 }
+        { timeout: 3000, headers }
       )
     } catch {
       // Ignore logout API failures
