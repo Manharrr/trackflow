@@ -266,11 +266,21 @@ export const cleanAuthTransferFromUrl = (windowObj = (typeof window !== 'undefin
   if (!windowObj?.location?.search || !windowObj?.history?.replaceState) return;
 
   const urlParams = new URLSearchParams(windowObj.location.search);
-  const hasTransfer = urlParams.has('auth_transfer') || urlParams.has('refresh_token');
+  const hasTransfer = urlParams.has('auth_transfer') || urlParams.has('refresh_token') || urlParams.has('logged_out');
 
   if (hasTransfer) {
+    if (urlParams.get('logged_out') === 'true') {
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.setItem('logged_out', 'true');
+        }
+      } catch {
+        // Ignore storage access errors
+      }
+    }
     urlParams.delete('auth_transfer');
     urlParams.delete('refresh_token');
+    urlParams.delete('logged_out');
     const newSearch = urlParams.toString();
     const newPath = windowObj.location.pathname + (newSearch ? `?${newSearch}` : '');
     windowObj.history.replaceState({}, '', newPath);

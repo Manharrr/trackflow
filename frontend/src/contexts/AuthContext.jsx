@@ -90,6 +90,12 @@ export function AuthProvider({ children }) {
       if (isLoggedOut) {
         if (urlParams.get('logged_out') === 'true') {
           sessionStorage.setItem('logged_out', 'true')
+          urlParams.delete('logged_out')
+          const newSearch = urlParams.toString()
+          const cleanPath = `${window.location.pathname}${newSearch ? `?${newSearch}` : ''}`
+          if (typeof window !== 'undefined' && window.history?.replaceState) {
+            window.history.replaceState({}, '', cleanPath)
+          }
         }
         setLoggingOut(false)
         clearStoredTokens(axiosInstance)
@@ -177,7 +183,7 @@ export function AuthProvider({ children }) {
             dispatch({ type: 'LOGOUT' })
             if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
               const rootOrigin = getRootOrigin(window)
-              window.location.href = `${rootOrigin}/?logged_out=true`
+              window.location.href = `${rootOrigin}/`
             }
             return Promise.reject(err)
           }
@@ -403,7 +409,7 @@ export function AuthProvider({ children }) {
       dispatch({ type: 'LOGOUT' })
       setSubscription(null)
       const rootOrigin = getRootOrigin(window)
-      window.location.href = `${rootOrigin}/?logged_out=true`
+      window.location.href = `${rootOrigin}/`
     }
   }
 

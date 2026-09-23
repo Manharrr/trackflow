@@ -281,16 +281,16 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
     assert.equal(targetRedirect, 'https://manhargurukkal.site/login');
   });
 
-  test('13. Tenant user logout redirects to central root landing page with logged_out flag', () => {
+  test('13. Tenant user logout redirects to central root landing page cleanly', () => {
     mockWindow.location.hostname = 'logesticgo.manhargurukkal.site';
     mockWindow.location.origin = 'https://logesticgo.manhargurukkal.site';
     mockWindow.location.pathname = '/employee';
 
-    // Logout always redirects to central root domain landing page
+    // Logout always redirects cleanly to central root domain landing page
     const rootOrigin = getRootOrigin(mockWindow);
-    const logoutRedirect = `${rootOrigin}/?logged_out=true`;
-    assert.equal(logoutRedirect, 'https://manhargurukkal.site/?logged_out=true');
-    assert.notEqual(logoutRedirect, 'https://logesticgo.manhargurukkal.site/?logged_out=true');
+    const logoutRedirect = `${rootOrigin}/`;
+    assert.equal(logoutRedirect, 'https://manhargurukkal.site/');
+    assert.notEqual(logoutRedirect, 'https://logesticgo.manhargurukkal.site/');
 
     // Dynamic compatibility for another tenant
     const otherTenantWindow = {
@@ -300,8 +300,8 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
         pathname: '/operations',
       },
     };
-    const otherLogoutRedirect = `${getRootOrigin(otherTenantWindow)}/?logged_out=true`;
-    assert.equal(otherLogoutRedirect, 'https://manhargurukkal.site/?logged_out=true');
+    const otherLogoutRedirect = `${getRootOrigin(otherTenantWindow)}/`;
+    assert.equal(otherLogoutRedirect, 'https://manhargurukkal.site/');
   });
 
   test('14. Local development environment correctly resolves localhost root origin', () => {
@@ -450,14 +450,14 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
     assert.equal(getApiBaseOrigin(localTenantWin), 'http://logesticgo.localhost:8000');
   });
 
-  test('21. Root / Super Admin logout redirects to root domain landing page with logged_out flag', () => {
+  test('21. Root / Super Admin logout redirects to root domain landing page cleanly', () => {
     mockWindow.location.hostname = 'manhargurukkal.site';
     mockWindow.location.origin = 'https://manhargurukkal.site';
     mockWindow.location.pathname = '/dashboard';
 
     assert.equal(isRootOrigin(mockWindow), true);
-    const logoutRedirect = `${mockWindow.location.origin}/?logged_out=true`;
-    assert.equal(logoutRedirect, 'https://manhargurukkal.site/?logged_out=true');
+    const logoutRedirect = `${mockWindow.location.origin}/`;
+    assert.equal(logoutRedirect, 'https://manhargurukkal.site/');
   });
 
   test('22. Authenticated tenant user routing remains unchanged across tenant workspaces', () => {
@@ -521,8 +521,8 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
 
     // AuthContext must use rootOrigin on logout & 401
     assert.ok(
-      authContextSource.includes('window.location.href = `${rootOrigin}/?logged_out=true`'),
-      'AuthContext must redirect to rootOrigin/?logged_out=true'
+      authContextSource.includes('window.location.href = `${rootOrigin}/`'),
+      'AuthContext must redirect to rootOrigin/'
     );
 
     // ProtectedRoute must redirect unauthenticated tenant users to central root origin login
@@ -630,7 +630,7 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
     assert.equal(getRoleDefaultPath(null), '/employee');
   });
 
-  test('30. Source code verification: logged_out param preserved across page reloads and sessionStorage stores logged_out flag', async () => {
+  test('30. Source code verification: logged_out param stripped from URL via replaceState and sessionStorage stores logged_out flag', async () => {
     const fs = await import('node:fs/promises');
     const authContextSource = await fs.readFile(
       new URL('../contexts/AuthContext.jsx', import.meta.url),
@@ -649,10 +649,10 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
       'AuthContext must store logged_out in sessionStorage'
     );
 
-    // AuthContext must NOT strip logged_out via history.replaceState
+    // AuthContext strips logged_out via history.replaceState to keep clean landing URL
     assert.ok(
-      !authContextSource.includes("urlParams.delete('logged_out')"),
-      'AuthContext must not delete logged_out query param on initialization'
+      authContextSource.includes("urlParams.delete('logged_out')"),
+      'AuthContext must delete logged_out query param on initialization'
     );
   });
 
@@ -763,8 +763,8 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
       'logout() must dispatch LOGOUT to reset auth state'
     );
     assert.ok(
-      logoutBody.includes("window.location.href = `${rootOrigin}/?logged_out=true`"),
-      'logout() must redirect to central landing page'
+      logoutBody.includes("window.location.href = `${rootOrigin}/`"),
+      'logout() must redirect cleanly to central landing page'
     );
   });
 });
