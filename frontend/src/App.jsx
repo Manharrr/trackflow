@@ -81,11 +81,10 @@ function PublicRoute({ children }) {
         return null
     }
 
-    // On root domain, /login and public auth pages must always render directly when unauthenticated or explicitly logged out
+    // On root domain, public auth pages (/login, /register, etc.) must always render directly
+    // and never redirect to tenant workspaces, preventing bounce loops and allowing immediate access.
     if (isRootOrigin()) {
-        if (!isAuthenticated || isExplicitlyLoggedOut) {
-            return children
-        }
+        return children
     }
 
     if (isAuthenticated && !isExplicitlyLoggedOut) {

@@ -35,7 +35,6 @@ export const setSharedLoggedOutCookie = (windowObj = (typeof window !== 'undefin
         : hostname.replace(/^[a-z0-9-]+\./, '');
       windowObj.document.cookie = `logged_out=true; domain=.${baseDomain}; path=/; SameSite=Lax; Secure`;
       windowObj.document.cookie = `logged_out=true; domain=${baseDomain}; path=/; SameSite=Lax; Secure`;
-      windowObj.document.cookie = 'logged_out=true; path=/; SameSite=Lax; Secure';
     }
   } catch {
     // Ignore cookie access errors in restricted modes

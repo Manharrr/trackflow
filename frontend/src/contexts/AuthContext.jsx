@@ -88,6 +88,17 @@ export function AuthProvider({ children }) {
       // Clean any stale auth_transfer parameters from URL if present
       cleanAuthTransferFromUrl(window)
 
+      if (!isRootOrigin(window)) {
+        // When arriving on a tenant workspace subdomain, clear any stale per-origin logged_out storage
+        // so that the HttpOnly cookie-based refresh can run cleanly without being poisoned by past logouts.
+        try {
+          sessionStorage.removeItem('logged_out')
+        } catch {
+          // ignore storage error
+        }
+        clearSharedLoggedOutCookie(window)
+      }
+
       const urlParams = new URLSearchParams(window.location.search)
       const isLoggedOut =
         hasSharedLoggedOutCookie(window) ||
@@ -189,9 +200,13 @@ export function AuthProvider({ children }) {
             setSharedLoggedOutCookie(window)
             clearStoredTokens(axiosInstance)
             dispatch({ type: 'LOGOUT' })
-            if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+            if (typeof window !== 'undefined' && window.location.pathname !== '/login' && window.location.pathname !== '/register') {
               const rootOrigin = getRootOrigin(window)
-              window.location.href = `${rootOrigin}/`
+              if (!isRootOrigin(window)) {
+                window.location.href = `${rootOrigin}/login`
+              } else {
+                window.location.href = `${rootOrigin}/`
+              }
             }
             return Promise.reject(err)
           }
@@ -408,7 +423,6 @@ export function AuthProvider({ children }) {
     setLoggingOut(true)
     setSharedLoggedOutCookie(window)
     try {
-      sessionStorage.setItem('logged_out', 'true')
       const currentRefresh = getStoredRefreshToken()
       const currentAccess = getStoredAccessToken()
       const headers = currentAccess ? { Authorization: `Bearer ${currentAccess}` } : {}

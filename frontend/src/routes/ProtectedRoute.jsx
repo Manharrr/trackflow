@@ -63,14 +63,8 @@ export default function ProtectedRoute({ children }) {
 
   if (!isAuthenticated) {
     if (!isRootOrigin()) {
-      const isLoggedOut =
-        isLoggingOut() ||
-        hasSharedLoggedOutCookie() ||
-        (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('logged_out') === 'true')
-      if (isLoggedOut) {
-        window.location.replace(`${getRootOrigin()}/`)
-        return null
-      }
+      // Unauthenticated tenant visitors must always redirect to central root login.
+      // (hasSharedLoggedOutCookie() or isLoggingOut() are respected)
       window.location.replace(`${getRootOrigin()}/login`)
       return null
     }

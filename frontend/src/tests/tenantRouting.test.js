@@ -822,6 +822,54 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
       'logout in AuthContext must call setSharedLoggedOutCookie'
     );
   });
+
+  test('36. Source code verification: PublicRoute renders children directly on root origin to prevent bounce loop on /login and /register', async () => {
+    const fs = await import('node:fs/promises');
+    const appSource = await fs.readFile(
+      new URL('../App.jsx', import.meta.url),
+      'utf-8'
+    );
+
+    assert.ok(
+      /if\s*\(\s*isRootOrigin\(\)\s*\)\s*\{\s*return\s+children/m.test(appSource),
+      'PublicRoute must unconditionally return children on root origin'
+    );
+  });
+
+  test('37. Source code verification: initAuth clears stale logged_out storage when arriving on tenant workspace', async () => {
+    const fs = await import('node:fs/promises');
+    const authContextSource = await fs.readFile(
+      new URL('../contexts/AuthContext.jsx', import.meta.url),
+      'utf-8'
+    );
+
+    assert.ok(
+      authContextSource.includes('if (!isRootOrigin(window))'),
+      'initAuth must check !isRootOrigin(window)'
+    );
+    assert.ok(
+      authContextSource.includes("sessionStorage.removeItem('logged_out')"),
+      'initAuth must remove stale logged_out from sessionStorage on tenant workspace'
+    );
+  });
+
+  test('38. Source code verification: ProtectedRoute never redirects unauthenticated tenant visitors to root landing page', async () => {
+    const fs = await import('node:fs/promises');
+    const protectedRouteSource = await fs.readFile(
+      new URL('../routes/ProtectedRoute.jsx', import.meta.url),
+      'utf-8'
+    );
+
+    assert.ok(
+      !protectedRouteSource.includes('window.location.replace(`${getRootOrigin()}/`)'),
+      'ProtectedRoute must NOT redirect unauthenticated users to landing page root origin/'
+    );
+    assert.ok(
+      protectedRouteSource.includes('window.location.replace(`${getRootOrigin()}/login`)'),
+      'ProtectedRoute must direct unauthenticated tenant users to root origin login'
+    );
+  });
 });
+
 
 
