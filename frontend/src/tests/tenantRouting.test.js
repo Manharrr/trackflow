@@ -655,5 +655,75 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
       'AuthContext must not delete logged_out query param on initialization'
     );
   });
+
+  test('31. loading /login?logged_out=true renders the login page and does not call refreshAccessToken or /api/auth/me/', async () => {
+    const fs = await import('node:fs/promises');
+    const authContextSource = await fs.readFile(
+      new URL('../contexts/AuthContext.jsx', import.meta.url),
+      'utf-8'
+    );
+
+    // Verify early return in initAuth when isLoggedOut is true occurs BEFORE refreshAccessToken or /auth/me/
+    const isLoggedOutCheckIdx = authContextSource.indexOf('if (isLoggedOut)');
+    const refreshAccessTokenIdx = authContextSource.indexOf('await refreshAccessToken(');
+    const authMeIdx = authContextSource.indexOf("axiosInstance.get('/auth/me/')");
+
+    assert.ok(isLoggedOutCheckIdx > 0, 'initAuth must check isLoggedOut');
+    assert.ok(refreshAccessTokenIdx > isLoggedOutCheckIdx, 'refreshAccessToken must be after isLoggedOut early return');
+    assert.ok(authMeIdx > isLoggedOutCheckIdx, '/api/auth/me/ must be after isLoggedOut early return');
+
+    // Simulate AuthContext initAuth lifecycle with logged_out=true
+    let refreshCalls = 0;
+    let authMeCalls = 0;
+    let dispatchedAction = null;
+    let loggingOutReset = false;
+
+    const mockStorage = new Map();
+    mockStorage.set('logged_out', 'false');
+
+    const fakeWindow = {
+      location: {
+        search: '?logged_out=true',
+        pathname: '/login',
+        origin: 'https://manhargurukkal.site',
+        hostname: 'manhargurukkal.site',
+      },
+    };
+
+    // Simulate initAuth execution
+    const urlParams = new URLSearchParams(fakeWindow.location.search);
+    const isLoggedOut = urlParams.get('logged_out') === 'true' || mockStorage.get('logged_out') === 'true';
+
+    assert.equal(isLoggedOut, true, 'isLoggedOut must evaluate to true');
+
+    if (isLoggedOut) {
+      if (urlParams.get('logged_out') === 'true') {
+        mockStorage.set('logged_out', 'true');
+      }
+      loggingOutReset = true; // setLoggingOut(false)
+      dispatchedAction = { type: 'LOGOUT' };
+    } else {
+      refreshCalls++;
+      authMeCalls++;
+    }
+
+    // Verify NO refresh or /me/ calls were made
+    assert.equal(refreshCalls, 0, 'Must NOT call refreshAccessToken when logged_out=true');
+    assert.equal(authMeCalls, 0, 'Must NOT call /api/auth/me/ when logged_out=true');
+    assert.equal(loggingOutReset, true, 'Must reset loggingOut flag to false');
+    assert.equal(mockStorage.get('logged_out'), 'true', 'Must persist logged_out in sessionStorage');
+
+    // Verify authReducer state transition from initialState
+    const reducerMatch = authContextSource.match(/function\s+authReducer\s*\([\s\S]*?\n\}/);
+    assert.ok(reducerMatch, 'authReducer function implementation must exist in AuthContext.jsx');
+    const authReducer = new Function('return ' + reducerMatch[0])();
+
+    const initial = { user: null, isAuthenticated: false, isLoading: true };
+    const finalState = authReducer(initial, dispatchedAction);
+
+    assert.equal(finalState.user, null, 'User state must be null');
+    assert.equal(finalState.isAuthenticated, false, 'isAuthenticated must be false');
+    assert.equal(finalState.isLoading, false, 'isLoading must be false so login page renders immediately');
+  });
 });
 

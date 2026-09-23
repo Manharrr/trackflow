@@ -91,11 +91,14 @@ export function AuthProvider({ children }) {
         if (urlParams.get('logged_out') === 'true') {
           sessionStorage.setItem('logged_out', 'true')
         }
+        setLoggingOut(false)
         clearStoredTokens(axiosInstance)
         dispatch({ type: 'LOGOUT' })
         isInitializingRef.current = false
         return
       }
+
+      setLoggingOut(false)
 
       try {
         await refreshAccessToken(null, { allowCookie: true })
@@ -136,6 +139,7 @@ export function AuthProvider({ children }) {
           }
         }
       } catch {
+        setLoggingOut(false)
         clearStoredTokens(axiosInstance)
         dispatch({ type: 'LOGOUT' })
       } finally {
@@ -171,8 +175,10 @@ export function AuthProvider({ children }) {
           } catch (err) {
             clearStoredTokens(axiosInstance)
             dispatch({ type: 'LOGOUT' })
-            const rootOrigin = getRootOrigin(window)
-            window.location.href = `${rootOrigin}/login?logged_out=true`
+            if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+              const rootOrigin = getRootOrigin(window)
+              window.location.href = `${rootOrigin}/login?logged_out=true`
+            }
             return Promise.reject(err)
           }
         }
