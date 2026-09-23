@@ -91,7 +91,8 @@ export function AuthProvider({ children }) {
       const urlParams = new URLSearchParams(window.location.search)
       const isLoggedOut =
         hasSharedLoggedOutCookie(window) ||
-        (urlParams.get('logged_out') === 'true' || sessionStorage.getItem('logged_out') === 'true')
+        (urlParams.get('logged_out') === 'true' || sessionStorage.getItem('logged_out') === 'true') ||
+        (isRootOrigin(window) && window.location.pathname === '/login')
 
       if (isLoggedOut) {
         if (urlParams.get('logged_out') === 'true') {
@@ -185,6 +186,7 @@ export function AuthProvider({ children }) {
             originalRequest.headers['Authorization'] = `Bearer ${newAccess}`
             return axiosInstance(originalRequest)
           } catch (err) {
+            setSharedLoggedOutCookie(window)
             clearStoredTokens(axiosInstance)
             dispatch({ type: 'LOGOUT' })
             if (typeof window !== 'undefined' && window.location.pathname !== '/login') {

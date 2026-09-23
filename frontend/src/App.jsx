@@ -81,6 +81,13 @@ function PublicRoute({ children }) {
         return null
     }
 
+    // On root domain, /login and public auth pages must always render directly when unauthenticated or explicitly logged out
+    if (isRootOrigin()) {
+        if (!isAuthenticated || isExplicitlyLoggedOut) {
+            return children
+        }
+    }
+
     if (isAuthenticated && !isExplicitlyLoggedOut) {
         const role = user?.role || user?.user?.role
         if (role === 'super_admin') {
