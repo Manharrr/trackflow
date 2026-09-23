@@ -1005,8 +1005,8 @@ class MFALoginAPIView(APIView):
 
 def clear_auth_cookie(response):
     """
-    Explicitly expires the refresh_token cookie across both the shared domain
-    (settings.SESSION_COOKIE_DOMAIN) and host-only domain.
+    Explicitly expires the refresh_token cookie across the shared domain,
+    base domain variants, and host-only domain.
     Matches all original cookie attributes required by RFC 6265bis:
     - Path=/
     - Secure=settings.COOKIE_SECURE
@@ -1014,7 +1014,17 @@ def clear_auth_cookie(response):
     - SameSite="Lax"
     - Max-Age=0 and Expires=Thu, 01 Jan 1970 00:00:00 GMT
     """
-    for d in [settings.SESSION_COOKIE_DOMAIN, None]:
+    domains = set()
+    if settings.SESSION_COOKIE_DOMAIN:
+        domains.add(settings.SESSION_COOKIE_DOMAIN)
+        domains.add(settings.SESSION_COOKIE_DOMAIN.lstrip("."))
+    base_domain = getattr(settings, "BASE_DOMAIN", None)
+    if base_domain:
+        domains.add(base_domain)
+        domains.add(f".{base_domain.lstrip('.')}")
+    domains.add(None)
+
+    for d in domains:
         response.set_cookie(
             key="refresh_token",
             value="",
@@ -1025,6 +1035,12 @@ def clear_auth_cookie(response):
             samesite="Lax",
             domain=d,
             path="/",
+        )
+        response.delete_cookie(
+            key="refresh_token",
+            path="/",
+            domain=d,
+            samesite="Lax",
         )
 
 

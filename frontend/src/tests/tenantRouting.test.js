@@ -725,5 +725,48 @@ describe('Tenant Dynamic URL Routing & Origin Isolation Suite', () => {
     assert.equal(finalState.isAuthenticated, false, 'isAuthenticated must be false');
     assert.equal(finalState.isLoading, false, 'isLoading must be false so login page renders immediately');
   });
+
+  test('32. Source code verification: ProtectedRoute returns null on isLoggingOut() to prevent /payment redirect', async () => {
+    const fs = await import('node:fs/promises');
+    const protectedRouteSource = await fs.readFile(
+      new URL('../routes/ProtectedRoute.jsx', import.meta.url),
+      'utf-8'
+    );
+
+    assert.ok(
+      protectedRouteSource.includes('if (isLoggingOut())'),
+      'ProtectedRoute must check isLoggingOut()'
+    );
+
+    const isLoggingOutIdx = protectedRouteSource.indexOf('if (isLoggingOut())');
+    const paymentGatingIdx = protectedRouteSource.indexOf("if (role === 'company_admin')");
+
+    assert.ok(
+      isLoggingOutIdx > 0 && isLoggingOutIdx < paymentGatingIdx,
+      'isLoggingOut() check must occur before company_admin subscription gating in ProtectedRoute'
+    );
+  });
+
+  test('33. Source code verification: AuthContext logout dispatches LOGOUT before redirect', async () => {
+    const fs = await import('node:fs/promises');
+    const authContextSource = await fs.readFile(
+      new URL('../contexts/AuthContext.jsx', import.meta.url),
+      'utf-8'
+    );
+
+    const logoutMatch = authContextSource.match(/const\s+logout\s*=\s*async\s*\(\)\s*=>\s*\{[\s\S]*?\n  \}/);
+    assert.ok(logoutMatch, 'logout function must exist in AuthContext.jsx');
+
+    const logoutBody = logoutMatch[0];
+    assert.ok(
+      logoutBody.includes("dispatch({ type: 'LOGOUT' })"),
+      'logout() must dispatch LOGOUT to reset auth state'
+    );
+    assert.ok(
+      logoutBody.includes("window.location.href = `${rootOrigin}/login?logged_out=true`"),
+      'logout() must redirect to central login'
+    );
+  });
 });
+
 

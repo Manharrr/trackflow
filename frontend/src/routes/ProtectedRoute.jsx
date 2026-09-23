@@ -1,6 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth, getTenantWorkspaceOrigin, getRootOrigin, isRootOrigin } from '../contexts/AuthContext'
-import { buildTenantRedirectUrl } from '../services/authSession'
+import { buildTenantRedirectUrl, isLoggingOut } from '../services/authSession'
 
 // Centralized permission map matching exact paths and patterns using RegExp
 const ROUTE_PERMISSIONS = {
@@ -48,6 +48,11 @@ export default function ProtectedRoute({ children }) {
   const { isAuthenticated, isLoading, user, subscription, isSubscriptionLoading } = useAuth()
   const location = useLocation()
 
+  // If a logout is currently in progress, render nothing to avoid firing redirect guards to /payment or dashboards
+  if (isLoggingOut()) {
+    return null
+  }
+
   if (isLoading || (user?.role === 'company_admin' && isSubscriptionLoading)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -58,6 +63,11 @@ export default function ProtectedRoute({ children }) {
 
   if (!isAuthenticated) {
     if (!isRootOrigin()) {
+      const isLoggedOut = isLoggingOut() || (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('logged_out') === 'true')
+      if (isLoggedOut) {
+        window.location.replace(`${getRootOrigin()}/login?logged_out=true`)
+        return null
+      }
       window.location.replace(`${getRootOrigin()}/login`)
       return null
     }

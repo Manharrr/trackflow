@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth, getTenantWorkspaceOrigin, getRootOrigin, isRootOrigin, getRoleDefaultPath } from './contexts/AuthContext'
-import { buildTenantRedirectUrl } from './services/authSession'
+import { buildTenantRedirectUrl, isLoggingOut } from './services/authSession'
 
 import ProtectedRoute from './routes/ProtectedRoute'
 import DashboardLayout from './layouts/DashboardLayout'
@@ -60,7 +60,7 @@ function PublicRoute({ children }) {
     } = useAuth()
 
     const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
-    const isExplicitlyLoggedOut = urlParams?.get('logged_out') === 'true' || (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('logged_out') === 'true')
+    const isExplicitlyLoggedOut = urlParams?.get('logged_out') === 'true' || (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('logged_out') === 'true') || isLoggingOut()
 
     if (isLoading && !isExplicitlyLoggedOut) {
         return (

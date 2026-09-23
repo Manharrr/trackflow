@@ -400,6 +400,7 @@ export function AuthProvider({ children }) {
       // Ignore logout API failures
     } finally {
       clearStoredTokens(axiosInstance)
+      dispatch({ type: 'LOGOUT' })
       setSubscription(null)
       const rootOrigin = getRootOrigin(window)
       window.location.href = `${rootOrigin}/login?logged_out=true`
