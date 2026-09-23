@@ -177,7 +177,7 @@ export function AuthProvider({ children }) {
             dispatch({ type: 'LOGOUT' })
             if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
               const rootOrigin = getRootOrigin(window)
-              window.location.href = `${rootOrigin}/login?logged_out=true`
+              window.location.href = `${rootOrigin}/?logged_out=true`
             }
             return Promise.reject(err)
           }
@@ -403,7 +403,7 @@ export function AuthProvider({ children }) {
       dispatch({ type: 'LOGOUT' })
       setSubscription(null)
       const rootOrigin = getRootOrigin(window)
-      window.location.href = `${rootOrigin}/login?logged_out=true`
+      window.location.href = `${rootOrigin}/?logged_out=true`
     }
   }
 

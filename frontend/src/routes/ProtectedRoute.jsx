@@ -65,7 +65,7 @@ export default function ProtectedRoute({ children }) {
     if (!isRootOrigin()) {
       const isLoggedOut = isLoggingOut() || (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('logged_out') === 'true')
       if (isLoggedOut) {
-        window.location.replace(`${getRootOrigin()}/login?logged_out=true`)
+        window.location.replace(`${getRootOrigin()}/?logged_out=true`)
         return null
       }
       window.location.replace(`${getRootOrigin()}/login`)
