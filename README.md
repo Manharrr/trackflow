@@ -12,7 +12,7 @@ https://manhargurukkal.site
 
 ---
 
-## ✨ Features
+##  Features
 
 ### 🏢 Multi-Tenant Architecture
 - Isolated workspace for every logistics company
