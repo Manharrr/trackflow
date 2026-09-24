@@ -23,7 +23,7 @@ https://manhargurukkal.site
 
 Example:
 
-logesticgo.manhargurukkal.site
+abcmanhargurukkal.site
 
 ### 📦 Order Management
 - Create and manage orders
