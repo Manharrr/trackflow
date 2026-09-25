@@ -75,6 +75,7 @@ SHARED_APPS = [
     'apps.accounts',
     'apps.authentication',
     'apps.passwords',
+    'storages',
     
 
 
@@ -301,3 +302,26 @@ STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 STRIPE_PRICE_ID = os.getenv("STRIPE_PRICE_ID")
+
+
+
+AWS_STORAGE_BUCKET_NAME = os.getenv(
+    "AWS_STORAGE_BUCKET_NAME",
+    "trackflow-profile-images"
+)
+
+AWS_S3_REGION_NAME = AWS_REGION
+AWS_S3_SIGNATURE_VERSION = "s3v4"
+
+# Keep uploaded files private
+AWS_DEFAULT_ACL = None
+AWS_QUERYSTRING_AUTH = True
+
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.s3.S3Storage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
