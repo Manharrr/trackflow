@@ -311,6 +311,7 @@ AWS_STORAGE_BUCKET_NAME = os.getenv(
 )
 
 AWS_S3_REGION_NAME = AWS_REGION
+AWS_S3_ENDPOINT_URL = f"https://s3.{AWS_S3_REGION_NAME}.amazonaws.com"
 AWS_S3_SIGNATURE_VERSION = "s3v4"
 
 # Keep uploaded files private
