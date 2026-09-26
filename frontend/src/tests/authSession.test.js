@@ -55,7 +55,6 @@ describe('Auth Session & Token Refresh Regression Suite', () => {
         };
       },
     };
-
     clearStoredTokens(mockAxios);
   });
 
