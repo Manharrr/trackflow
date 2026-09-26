@@ -1,0 +1,70 @@
+name: TrackFlow CI
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+jobs:
+
+  backend-ci:
+    name: Backend CI
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # 1. Get the repository code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 3. Install backend dependencies
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      # 4. Check Django configuration
+      - name: Django system check
+        run: |
+          python backend/manage.py check
+
+      # 5. Check for missing migrations
+      - name: Check migrations
+        run: |
+          python backend/manage.py makemigrations --check --dry-run
+
+      # 6. Run Django tests
+      - name: Run backend tests
+        run: |
+          python backend/manage.py test
+
+      # 7. Build backend Docker image
+      - name: Build backend Docker image
+        run: |
+          docker build -t trackflow-backend ./backend
+
+
+  ai-service-ci:
+    name: AI Service CI
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # 1. Get the repository code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Build AI service Docker image
+      - name: Build AI service Docker image
+        run: |
+          docker build -t trackflow-ai ./ai_service
