@@ -14,6 +14,10 @@ jobs:
   backend-ci:
     name: Backend CI
     runs-on: ubuntu-latest
+    
+    env:
+      SECRET_KEY: "ci-only-secret-key-do-not-use-in-production"
+
 
     steps:
 
