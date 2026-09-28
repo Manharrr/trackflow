@@ -14,10 +14,9 @@ jobs:
   backend-ci:
     name: Backend CI
     runs-on: ubuntu-latest
-    
+
     env:
       SECRET_KEY: "ci-only-secret-key-do-not-use-in-production"
-
 
     steps:
 
@@ -72,3 +71,65 @@ jobs:
       - name: Build AI service Docker image
         run: |
           docker build -t trackflow-ai ./ai_service
+
+
+  push-to-ecr:
+    name: Push Docker Images to ECR
+    runs-on: ubuntu-latest
+
+    # Only push images for direct pushes to main.
+    # Pull requests will run CI but will NOT push images to ECR.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    # ECR push starts only after both CI jobs succeed.
+    needs:
+      - backend-ci
+      - ai-service-ci
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+
+      # 1. Get the repository code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Configure AWS using GitHub OIDC
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::422766738120:role/TrackFlow-GitHubActions-ECR
+          aws-region: eu-north-1
+
+      # 3. Login to Amazon ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # 4. Build backend Docker image
+      - name: Build backend Docker image
+        run: |
+          docker build \
+            -t 422766738120.dkr.ecr.eu-north-1.amazonaws.com/trackflow-backend:latest \
+            ./backend
+
+      # 5. Build AI service Docker image
+      - name: Build AI service Docker image
+        run: |
+          docker build \
+            -t 422766738120.dkr.ecr.eu-north-1.amazonaws.com/trackflow-ai:latest \
+            ./ai_service
+
+      # 6. Push backend image to ECR
+      - name: Push backend image to ECR
+        run: |
+          docker push \
+            422766738120.dkr.ecr.eu-north-1.amazonaws.com/trackflow-backend:latest
+
+      # 7. Push AI image to ECR
+      - name: Push AI image to ECR
+        run: |
+          docker push \
+            422766738120.dkr.ecr.eu-north-1.amazonaws.com/trackflow-ai:latest
