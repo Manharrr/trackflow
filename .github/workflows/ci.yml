@@ -145,3 +145,33 @@ jobs:
         run: |
           docker push \
             422766738120.dkr.ecr.eu-north-1.amazonaws.com/trackflow-ai:latest
+
+  deploy-to-ec2:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+
+    # Deploy only after ECR push succeeds
+    needs:
+      - push-to-ecr
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/trackflow
+
+            echo "Pulling latest Docker images..."
+            docker compose pull backend celery_worker celery_beat ai_service
+
+            echo "Restarting updated services..."
+            docker compose up -d --force-recreate backend celery_worker celery_beat ai_service
+
+            echo "Checking running containers..."
+            docker compose ps
