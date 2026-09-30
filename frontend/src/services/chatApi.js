@@ -1,7 +1,8 @@
 import axios from 'axios';
 
 const apiBaseUrl =
-  import.meta.env.VITE_API_BASE_URL || 'https://api.manhargurukkal.site';
+  import.meta.env.VITE_API_BASE_URL ||
+  'https://api.manhargurukkal.site';
 
 /**
  * Sends a chat message to the Django backend.

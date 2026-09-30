@@ -3,7 +3,8 @@ import axios from "axios";
 export const getApiBaseUrl = (windowObj = (typeof window !== "undefined" ? window : null)) => {
   const envUrl = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) || "";
   if (envUrl && !envUrl.includes("duckdns")) {
-    return envUrl;
+    const cleanUrl = envUrl.replace(/\/+$/, "");
+    return cleanUrl.endsWith("/api") ? cleanUrl : `${cleanUrl}/api`;
   }
   const hostname = windowObj?.location?.hostname || "";
   const isLocal =
