@@ -1,8 +1,10 @@
 import axios from 'axios';
 
-const apiBaseUrl =
+const rawBaseUrl =
   import.meta.env.VITE_API_BASE_URL ||
   'https://api.manhargurukkal.site';
+
+const apiBaseUrl = rawBaseUrl.replace(/\/+$/, '').replace(/\/api\/?$/, '');
 
 /**
  * Sends a chat message to the Django backend.
