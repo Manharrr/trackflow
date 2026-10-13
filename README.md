@@ -55,7 +55,7 @@ abcmanhargurukkal.site
 - Real-time notifications
 - Live operational updates
 
-### 🤖 AI & RAG
+###  AI & RAG
 - AI-powered logistics assistant
 - Retrieval-Augmented Generation
 - Vector search
