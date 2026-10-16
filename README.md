@@ -64,7 +64,7 @@ abcmanhargurukkal.site
 - FastAPI AI microservice
 - Context-aware responses
 
-### 📊 Analytics
+###  Analytics
 - Operations dashboard
 - Order analytics
 - Employee performance
