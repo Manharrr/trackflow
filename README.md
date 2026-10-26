@@ -32,7 +32,7 @@ abcmanhargurukkal.site
 - Delivery status updates
 - Order search and filtering
 
-### 👥 Employee Management
+###  Employee Management
 - Company employee management
 - Role-based access control
 - Employee activation workflow
