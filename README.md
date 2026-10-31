@@ -38,7 +38,7 @@ abcmanhargurukkal.site
 - Employee activation workflow
 - Employee status management
 
-### 🔐 Authentication & Security
+###  Authentication & Security
 - JWT authentication
 - Access & refresh tokens
 - HttpOnly cookies
