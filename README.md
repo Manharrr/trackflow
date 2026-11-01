@@ -80,7 +80,7 @@ abcmanhargurukkal.site
 
 ---
 
-## 🏗️ Architecture
+##  Architecture
 
 ```text
                          ┌──────────────────────┐
