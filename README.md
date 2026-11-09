@@ -14,7 +14,7 @@ https://manhargurukkal.site
 
 ##  Features
 
-### 🏢 Multi-Tenant Architecture
+###  Multi-Tenant Architecture
 - Isolated workspace for every logistics company
 - PostgreSQL schema-based tenant isolation
 - Tenant-specific subdomains
