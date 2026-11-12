@@ -48,7 +48,7 @@ abcmanhargurukkal.site
 - CORS / CSRF protection
 - Tenant-aware authentication
 
-### ⚡ Real-Time Communication
+###  Real-Time Communication
 - Django Channels
 - WebSockets
 - Real-time chat
