@@ -25,7 +25,7 @@ Example:
 
 abcmanhargurukkal.site
 
-### 📦 Order Management
+###  Order Management
 - Create and manage orders
 - Assign orders to employees
 - Track order lifecycle
