@@ -71,7 +71,7 @@ abcmanhargurukkal.site
 - Courier performance
 - Operational insights
 
-### ⚙️ Background Processing
+###  Background Processing
 - Celery
 - Celery Beat
 - AWS SQS
