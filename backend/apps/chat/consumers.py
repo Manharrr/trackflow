@@ -94,7 +94,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
                         getattr(self.user, "id", None),
                         conversation_id,
                     )
-                    return None
+                    return None1
                 return conv
         except Conversation.DoesNotExist:
             logger.info("Conversation %s not found for tenant %s", conversation_id, getattr(self.tenant, "schema_name", None))

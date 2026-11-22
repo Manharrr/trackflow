@@ -230,7 +230,7 @@ export default function PaymentPage() {
 
               <div className="mt-4 flex items-center justify-center gap-2 text-xs text-muted-gray">
                 <Lock className="w-3.5 h-3.5" />
-                <span>256-Bit SSL Encrypted Payment</span>
+                {/* <span>256-Bit SSL Encrypted Payment</span> */}
               </div>
             </div>
           </div>

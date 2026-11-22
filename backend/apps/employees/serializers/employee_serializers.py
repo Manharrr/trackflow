@@ -15,7 +15,7 @@ class EmployeeCreateSerializer(serializers.ModelSerializer):
             "full_name",
             "email",
             "phone",
-            "role",
+            "role", 
             "department",
             "designation",
             "manager",
